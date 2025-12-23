@@ -20,13 +20,26 @@ export interface MotionBlockOptions {
   
   // Relative motion parameters
   distanceDelta?: number;
-  panAmount?: number;
-  truckAmount?: number;
+  angleDelta?: number; // Angle change in radians for Pan/Tilt/Roll (converted from degrees in UI)
+  panAmount?: number; // Legacy: angle in radians for Pan/Orbit (use angleDelta instead)
+  truckAmount?: number; // Legacy: horizontal truck amount (use truckX instead)
+  truckX?: number; // Horizontal truck amount
+  truckY?: number; // Vertical truck amount (for Pedestal)
   arcAngle?: number; // Arc angle in radians (converted from degrees in UI)
+  zoomFov?: number; // Target FOV for zoom effects
   
   // Absolute positioning parameters
   targetPosition?: [number, number, number]; // [x, y, z] target
   cameraPosition?: [number, number, number]; // [x, y, z] camera pos (optional)
+  
+  // Smart move targets (for moveTo block)
+  // Specifies the final destination values
+  to?: {
+    azimuth?: number;   // Target horizontal angle (radians)
+    polar?: number;     // Target vertical angle (radians)
+    distance?: number;  // Target distance
+    target?: [number, number, number]; // Target center point [x, y, z]
+  };
   
   // Composite motion parameters (for simultaneous movements)
   rotate?: { azimuth?: number; polar?: number }; // Rotation angles in radians (converted from degrees in UI)
@@ -39,8 +52,33 @@ export interface MotionBlockOptions {
     polar?: number;
     distance?: number;
     center?: [number, number, number];
+    fov?: number; // Field of view
+    roll?: number; // Roll angle in radians
+  };
+  
+  // End state (for moveTo block)
+  endState?: {
+    azimuth?: number;
+    polar?: number;
+    distance?: number;
+    center?: [number, number, number];
+    fov?: number; // Field of view
+    roll?: number; // Roll angle in radians
   };
 }
+
+/**
+ * Helper: Calculate shortest path for rotation
+ * Ensures rotation doesn't take the long way around (e.g., from 350° to 10° should rotate 20°, not 340°)
+ */
+const getShortestAngle = (start: number, end: number): number => {
+  const twoPi = Math.PI * 2;
+  let diff = ((end - start) % twoPi + twoPi) % twoPi;
+  if (diff > Math.PI) {
+    diff -= twoPi;
+  }
+  return start + diff;
+};
 
 // Helper function: Apply forced start state
 const applyStartState = (controls: CameraControls, startState?: MotionBlockOptions['startState']) => {
@@ -49,6 +87,22 @@ const applyStartState = (controls: CameraControls, startState?: MotionBlockOptio
     if (startState.polar !== undefined) controls.polarAngle = startState.polar;
     if (startState.distance !== undefined) controls.dollyTo(startState.distance, false);
     if (startState.center) controls.setTarget(...startState.center, false);
+    
+    // Handle roll by rotating camera around its forward axis
+    if (startState.roll !== undefined) {
+      const forward = new THREE.Vector3();
+      controls.camera.getWorldDirection(forward);
+      const rotationMatrix = new THREE.Matrix4().makeRotationAxis(forward, startState.roll);
+      const newUp = controls.camera.up.clone().applyMatrix4(rotationMatrix);
+      controls.camera.up.copy(newUp);
+      controls.camera.updateProjectionMatrix();
+    }
+    
+    // Handle FOV (requires direct camera manipulation)
+    if (startState.fov !== undefined && controls.camera instanceof THREE.PerspectiveCamera) {
+      controls.camera.fov = startState.fov;
+      controls.camera.updateProjectionMatrix();
+    }
   }
 };
 
@@ -126,15 +180,75 @@ export const createDollyBlock = (opts: MotionBlockOptions = {}): MotionBlock => 
 });
 
 /**
- * Block: Pan - Move camera left or right horizontally
+ * Block: Pan / Look Around
+ * Camera position stays fixed, only the viewing direction changes (by moving the target).
+ * Visual effect: Background moves, object moves out of frame center.
+ * This is like turning your head while standing still.
  */
 export const createPanBlock = (opts: MotionBlockOptions = {}): MotionBlock => ({
   id: "pan",
+  execute: ({ controls }) => {
+    const tl = gsap.timeline();
+    const duration = opts.duration ?? 2;
+    const ease = opts.ease ?? "power2.inOut";
+    const angle = opts.angleDelta ?? Math.PI / 4; // Angle to look left/right
+
+    // Proxy object to hold eased progress value
+    const progressProxy = { value: 0 };
+    
+    // Record initial state
+    let startPos = new THREE.Vector3();
+    let startTarget = new THREE.Vector3();
+    let forwardVec = new THREE.Vector3(); // Camera forward vector
+
+    tl.to(progressProxy, {
+      value: 1,
+      duration,
+      ease,
+      onStart: () => {
+        applyStartState(controls, opts.startState);
+        
+        controls.getPosition(startPos);
+        controls.getTarget(startTarget);
+        
+        // Calculate original "view vector" (Target - Position)
+        forwardVec.subVectors(startTarget, startPos);
+      },
+      onUpdate: () => {
+        const p = progressProxy.value; // Eased progress value
+        
+        // Rotate the vector
+        // Rotate view vector around Y-axis (world vertical axis)
+        const currentVec = forwardVec.clone();
+        currentVec.applyAxisAngle(new THREE.Vector3(0, 1, 0), angle * p);
+        
+        // Calculate new Target position
+        // New Target = Camera Position + New Vector
+        // This keeps Camera Position fixed, only Target moves
+        const newTarget = startPos.clone().add(currentVec);
+
+        controls.setLookAt(
+          startPos.x, startPos.y, startPos.z, // Camera position stays fixed
+          newTarget.x, newTarget.y, newTarget.z, // Target position changes
+          false // Disable built-in transition
+        );
+      }
+    });
+    return tl;
+  }
+});
+
+/**
+ * Block: Truck - Move camera left or right horizontally
+ */
+export const createTruckBlock = (opts: MotionBlockOptions = {}): MotionBlock => ({
+  id: "truck",
   execute: ({ controls, radius }) => {
     const tl = gsap.timeline();
     const duration = opts.duration ?? 2;
     const ease = opts.ease ?? "power2.inOut";
-    const amount = opts.panAmount ?? radius * 0.5;
+    // Use truckX if provided, otherwise fall back to truckAmount for backward compatibility
+    const amount = opts.truckX ?? opts.truckAmount ?? radius * 0.5;
     
     // Proxy object to hold eased progress value
     const progressProxy = { value: 0 };
@@ -161,15 +275,51 @@ export const createPanBlock = (opts: MotionBlockOptions = {}): MotionBlock => ({
 });
 
 /**
- * Block: Truck - Move camera left or right (similar to pan but uses truck method directly)
+ * Block: Tilt - Rotate camera vertically around the target (change polar angle)
+ * This allows viewing the top or bottom of the model.
  */
-export const createTruckBlock = (opts: MotionBlockOptions = {}): MotionBlock => ({
-  id: "truck",
+export const createTiltBlock = (opts: MotionBlockOptions = {}): MotionBlock => ({
+  id: "tilt",
+  execute: ({ controls }) => {
+    const tl = gsap.timeline();
+    const duration = opts.duration ?? 2;
+    const ease = opts.ease ?? "power2.inOut";
+    const angle = opts.angleDelta ?? Math.PI / 6; // Default: 30 degrees
+    
+    // Proxy object to hold eased progress value
+    const progressProxy = { value: 0 };
+    let startAngle: number;
+    
+    tl.to(progressProxy, {
+      value: 1,
+      duration,
+      ease,
+      onStart: function () {
+        applyStartState(controls, opts.startState);
+        startAngle = controls.polarAngle;
+      },
+      onUpdate: function () {
+        const p = progressProxy.value; // Eased progress value
+        // Note: Polar angle is typically constrained between 0 (top) and PI (bottom)
+        controls.polarAngle = startAngle + angle * p;
+      }
+    });
+    return tl;
+  }
+});
+
+/**
+ * Block: Pedestal - Move camera vertically (vertical truck)
+ * This moves the entire camera up or down, not rotating.
+ * Great for showcasing height details of models.
+ */
+export const createPedestalBlock = (opts: MotionBlockOptions = {}): MotionBlock => ({
+  id: "pedestal",
   execute: ({ controls, radius }) => {
     const tl = gsap.timeline();
     const duration = opts.duration ?? 2;
     const ease = opts.ease ?? "power2.inOut";
-    const amount = opts.truckAmount ?? radius * 0.5;
+    const yAmount = opts.truckY ?? radius * 0.5;
     
     // Proxy object to hold eased progress value
     const progressProxy = { value: 0 };
@@ -186,9 +336,145 @@ export const createTruckBlock = (opts: MotionBlockOptions = {}): MotionBlock => 
       onUpdate: function () {
         const p = progressProxy.value; // Eased progress value
         const deltaProgress = p - lastProgress; // Delta will now reflect easing curve
-        // Truck horizontally using incremental delta
-        controls.truck(amount * deltaProgress, 0, false);
+        // Truck vertically: second parameter controls vertical movement
+        controls.truck(0, yAmount * deltaProgress, false);
         lastProgress = p;
+      }
+    });
+    return tl;
+  }
+});
+
+/**
+ * Block: Roll - Rotate camera around its forward axis (Dutch angle)
+ * Creates a tilted, dynamic feel. Great for artistic or energetic shots.
+ */
+export const createRollBlock = (opts: MotionBlockOptions = {}): MotionBlock => ({
+  id: "roll",
+  execute: ({ controls }) => {
+    const tl = gsap.timeline();
+    const duration = opts.duration ?? 1;
+    const ease = opts.ease ?? "power2.inOut";
+    const angle = opts.angleDelta ?? Math.PI / 6; // Default: 30 degrees
+    
+    // Proxy object to hold eased progress value
+    const progressProxy = { value: 0 };
+    let startUp = new THREE.Vector3();
+    let forward = new THREE.Vector3();
+    
+    tl.to(progressProxy, {
+      value: 1,
+      duration,
+      ease,
+      onStart: function () {
+        applyStartState(controls, opts.startState);
+        // Capture initial camera orientation
+        startUp.copy(controls.camera.up);
+        controls.camera.getWorldDirection(forward);
+      },
+      onUpdate: function () {
+        const p = progressProxy.value; // Eased progress value
+        const currentRoll = angle * p;
+        
+        // Rotate camera up vector around forward axis
+        const rotationMatrix = new THREE.Matrix4().makeRotationAxis(forward, currentRoll);
+        const newUp = startUp.clone().applyMatrix4(rotationMatrix);
+        controls.camera.up.copy(newUp);
+        controls.camera.updateProjectionMatrix();
+      }
+    });
+    return tl;
+  }
+});
+
+/**
+ * Block: Zoom - Change field of view (FOV)
+ * This is optical zoom, not camera movement.
+ */
+export const createZoomBlock = (opts: MotionBlockOptions = {}): MotionBlock => ({
+  id: "zoom",
+  execute: ({ controls }) => {
+    const tl = gsap.timeline();
+    const duration = opts.duration ?? 2;
+    const ease = opts.ease ?? "power2.inOut";
+    const targetFov = opts.zoomFov ?? 20; // Default: zoom in to 20 (telephoto)
+    
+    // Proxy object to hold eased progress value
+    const progressProxy = { value: 0 };
+    let startFov = 50;
+    
+    tl.to(progressProxy, {
+      value: 1,
+      duration,
+      ease,
+      onStart: function () {
+        applyStartState(controls, opts.startState);
+        if (controls.camera instanceof THREE.PerspectiveCamera) {
+          startFov = controls.camera.fov;
+        }
+      },
+      onUpdate: function () {
+        if (controls.camera instanceof THREE.PerspectiveCamera) {
+          const p = progressProxy.value; // Eased progress value
+          // Interpolate FOV
+          controls.camera.fov = startFov + (targetFov - startFov) * p;
+          controls.camera.updateProjectionMatrix(); // Must call this, otherwise view won't update
+        }
+      }
+    });
+    return tl;
+  }
+});
+
+/**
+ * Block: Dolly Zoom (Vertigo Effect) - Hitchcock zoom
+ * Simultaneously dolly in (move forward) and zoom out (wider FOV), or vice versa.
+ * Subject size stays constant, but background perspective changes dramatically.
+ */
+export const createDollyZoomBlock = (opts: MotionBlockOptions = {}): MotionBlock => ({
+  id: "dollyZoom",
+  execute: ({ controls }) => {
+    const tl = gsap.timeline();
+    const duration = opts.duration ?? 3;
+    const ease = opts.ease ?? "power2.inOut";
+    const targetFov = opts.zoomFov ?? 10; // Zoom target
+    
+    // Dolly logic needs to compensate inversely: if FOV gets smaller (zoom in),
+    // camera needs to move back (dolly out) to maintain subject size
+    
+    // Proxy object to hold eased progress value
+    const progressProxy = { value: 0 };
+    let startFov = 45;
+    let startDist = 0;
+    
+    tl.to(progressProxy, {
+      value: 1,
+      duration,
+      ease,
+      onStart: function () {
+        applyStartState(controls, opts.startState);
+        if (controls.camera instanceof THREE.PerspectiveCamera) {
+          startFov = controls.camera.fov;
+        }
+        startDist = controls.distance;
+      },
+      onUpdate: function () {
+        if (controls.camera instanceof THREE.PerspectiveCamera) {
+          const p = progressProxy.value; // Eased progress value
+          
+          // 1. Calculate current FOV
+          const currentFov = startFov + (targetFov - startFov) * p;
+          controls.camera.fov = currentFov;
+          controls.camera.updateProjectionMatrix();
+          
+          // 2. Calculate compensating distance (formula to maintain subject size)
+          // Distance2 = Distance1 * tan(FOV1 / 2) / tan(FOV2 / 2)
+          const rad1 = (startFov * Math.PI) / 360;
+          const rad2 = (currentFov * Math.PI) / 360;
+          const newDist = startDist * (Math.tan(rad1) / Math.tan(rad2));
+          
+          controls.dollyTo(newDist, false);
+        }
       }
     });
     return tl;
@@ -311,17 +597,11 @@ export const createCompositeBlock = (opts: MotionBlockOptions = {}): MotionBlock
 });
 
 /**
- * Block: MoveTo (Absolute positioning - Core new feature)
- * Allows you to specify exact "target point (LookAt)" or "camera position".
- * This is the key to achieving Start/End Pos control.
+ * Block: MoveTo (Smart Interpolation)
+ * Smoothly transitions camera from startState (or current) to endState.
+ * Uses shortest path rotation and supports all camera properties.
  */
 export const createMoveToBlock = (opts: MotionBlockOptions = {}): MotionBlock => {
-  // If both cameraPosition and targetPosition are provided, use absolute move
-  if (opts.targetPosition && opts.cameraPosition) {
-    return createAbsoluteMoveBlock(opts);
-  }
-
-  // Otherwise, handle as spherical coordinate interpolation
   return {
     id: "moveTo",
     execute: ({ controls }) => {
@@ -331,90 +611,113 @@ export const createMoveToBlock = (opts: MotionBlockOptions = {}): MotionBlock =>
 
       // Proxy object to hold eased progress value
       const progressProxy = { value: 0 };
-      
-      // Record start state
-      const start = { az: 0, pol: 0, dist: 0 };
-      
+
+      // State variables
+      const start = { 
+        az: 0, pol: 0, dist: 0, 
+        tx: 0, ty: 0, tz: 0,
+        fov: 50, roll: 0
+      };
+      const end = { 
+        az: 0, pol: 0, dist: 0, 
+        tx: 0, ty: 0, tz: 0,
+        fov: 50, roll: 0
+      };
+
       tl.to(progressProxy, {
         value: 1,
         duration,
         ease,
         onStart: () => {
+          // Apply forced start state (if provided)
           applyStartState(controls, opts.startState);
-          
+
+          // Capture current camera state as start
           start.az = controls.azimuthAngle;
           start.pol = controls.polarAngle;
           start.dist = controls.distance;
           
-          // If targetPosition is provided but no cameraPosition,
-          // we could calculate spherical angles here
-          // For now, this is a placeholder for future enhancement
+          const currentTarget = new THREE.Vector3();
+          controls.getTarget(currentTarget);
+          start.tx = currentTarget.x;
+          start.ty = currentTarget.y;
+          start.tz = currentTarget.z;
+          
+          if (controls.camera instanceof THREE.PerspectiveCamera) {
+            start.fov = controls.camera.fov;
+          }
+          
+          // Get roll from camera up vector (simplified)
+          start.roll = 0; // Will be calculated if needed
+
+          // Calculate end state from endState or fallback to to (for backward compatibility)
+          const endState = opts.endState || {};
+          
+          // Use endState if provided, otherwise fallback to to (legacy support)
+          const targetAz = endState.azimuth ?? opts.to?.azimuth ?? start.az;
+          end.az = getShortestAngle(start.az, targetAz);
+          end.pol = endState.polar ?? opts.to?.polar ?? start.pol;
+          end.dist = endState.distance ?? opts.to?.distance ?? start.dist;
+          
+          if (endState.center) {
+            end.tx = endState.center[0];
+            end.ty = endState.center[1];
+            end.tz = endState.center[2];
+          } else if (opts.to?.target) {
+            end.tx = opts.to.target[0];
+            end.ty = opts.to.target[1];
+            end.tz = opts.to.target[2];
+          } else {
+            end.tx = start.tx;
+            end.ty = start.ty;
+            end.tz = start.tz;
+          }
+          
+          if (endState.fov !== undefined && controls.camera instanceof THREE.PerspectiveCamera) {
+            end.fov = endState.fov;
+          } else {
+            end.fov = start.fov;
+          }
+          
+          end.roll = endState.roll ?? start.roll;
         },
         onUpdate: function () {
-          // Placeholder: If you want to move to specific angles,
-          // you would interpolate here using progressProxy.value
-          // For full XYZ positioning, use the absolute move block below
-          void progressProxy.value; // Placeholder - implement interpolation logic here
+          const p = progressProxy.value;
+
+          // Interpolate spherical coordinates
+          controls.azimuthAngle = start.az + (end.az - start.az) * p;
+          controls.polarAngle = start.pol + (end.pol - start.pol) * p;
+          controls.dollyTo(start.dist + (end.dist - start.dist) * p, false);
+          
+          // Interpolate center point
+          const nextTx = start.tx + (end.tx - start.tx) * p;
+          const nextTy = start.ty + (end.ty - start.ty) * p;
+          const nextTz = start.tz + (end.tz - start.tz) * p;
+          controls.setTarget(nextTx, nextTy, nextTz, false);
+          
+          // Interpolate FOV
+          if (controls.camera instanceof THREE.PerspectiveCamera) {
+            controls.camera.fov = start.fov + (end.fov - start.fov) * p;
+            controls.camera.updateProjectionMatrix();
+          }
+          
+          // Interpolate roll (if changed)
+          if (end.roll !== start.roll) {
+            const forward = new THREE.Vector3();
+            controls.camera.getWorldDirection(forward);
+            const rotationMatrix = new THREE.Matrix4().makeRotationAxis(
+              forward, 
+              start.roll + (end.roll - start.roll) * p
+            );
+            const initialUp = new THREE.Vector3(0, 1, 0);
+            const newUp = initialUp.applyMatrix4(rotationMatrix);
+            controls.camera.up.copy(newUp);
+            controls.camera.updateProjectionMatrix();
+          }
         }
       });
-      
+
       return tl;
     }
   };
 };
-
-/**
- * Specialized block for absolute path movement
- * Moves from current position -> specified Camera Position and Target Position
- */
-const createAbsoluteMoveBlock = (opts: MotionBlockOptions): MotionBlock => ({
-  id: "absoluteMove",
-  execute: ({ controls }) => {
-    const tl = gsap.timeline();
-    const duration = opts.duration ?? 2;
-    const ease = opts.ease ?? "power2.inOut";
-    
-    const startState = { cx: 0, cy: 0, cz: 0, tx: 0, ty: 0, tz: 0 };
-    const endState = { 
-      cx: opts.cameraPosition![0], 
-      cy: opts.cameraPosition![1], 
-      cz: opts.cameraPosition![2],
-      tx: opts.targetPosition![0], 
-      ty: opts.targetPosition![1], 
-      tz: opts.targetPosition![2]
-    };
-
-    tl.to(startState, {
-      cx: endState.cx, 
-      cy: endState.cy, 
-      cz: endState.cz,
-      tx: endState.tx, 
-      ty: endState.ty, 
-      tz: endState.tz,
-      duration,
-      ease,
-      onStart: () => {
-        applyStartState(controls, opts.startState);
-        const pos = new THREE.Vector3();
-        const target = new THREE.Vector3();
-        controls.getPosition(pos);
-        controls.getTarget(target);
-        startState.cx = pos.x; 
-        startState.cy = pos.y; 
-        startState.cz = pos.z;
-        startState.tx = target.x; 
-        startState.ty = target.y; 
-        startState.tz = target.z;
-      },
-      onUpdate: function () {
-        // Each frame, set interpolated coordinates back to camera
-        controls.setLookAt(
-          startState.cx, startState.cy, startState.cz,
-          startState.tx, startState.ty, startState.tz,
-          false // disable transition, let gsap handle it
-        );
-      }
-    });
-    return tl;
-  }
-});

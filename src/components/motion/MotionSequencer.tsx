@@ -2,10 +2,15 @@ import { useThree } from "@react-three/fiber";
 import { useEffect, useRef } from "react";
 import gsap from "gsap";
 import { CameraControls } from "@react-three/drei";
-import { 
+import {
   createDollyBlock,
   createPanBlock,
   createTruckBlock,
+  createTiltBlock,
+  createPedestalBlock,
+  createRollBlock,
+  createZoomBlock,
+  createDollyZoomBlock,
   createArcBlock,
   createCompositeBlock,
   createMoveToBlock,
@@ -41,6 +46,11 @@ export const MotionSequencer = ({
     dolly: createDollyBlock,
     pan: createPanBlock,
     truck: createTruckBlock,
+    tilt: createTiltBlock,
+    pedestal: createPedestalBlock,
+    roll: createRollBlock,
+    zoom: createZoomBlock,
+    dollyZoom: createDollyZoomBlock,
     arc: createArcBlock,
     composite: createCompositeBlock,
     moveTo: createMoveToBlock,

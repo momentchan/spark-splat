@@ -19,7 +19,7 @@ interface MotionState {
   moveBlockDown: (id: string) => void;
   
   // Core feature: Capture current camera state to current Block
-  captureCameraToBlock: (field: 'startState' | 'targetPosition' | 'cameraPosition') => void;
+  captureCameraToBlock: (field: 'startState' | 'endState' | 'targetPosition' | 'cameraPosition') => void;
 }
 
 // Helper function: Get default options for different block types
@@ -39,7 +39,22 @@ const getDefaultOptions = (type: string): Partial<BlockConfig> => {
     return { ...base, duration: 3, arcAngle: Math.PI / 2, id: type };
   }
   if (type === 'pan') {
-    return { ...base, panAmount: 0.5, id: type };
+    return { ...base, angleDelta: Math.PI / 4, id: type }; // Default: 45 degrees
+  }
+  if (type === 'tilt') {
+    return { ...base, angleDelta: Math.PI / 6, id: type }; // Default: 30 degrees
+  }
+  if (type === 'pedestal') {
+    return { ...base, truckY: 1, id: type };
+  }
+  if (type === 'roll') {
+    return { ...base, angleDelta: Math.PI / 6, id: type }; // Default: 30 degrees
+  }
+  if (type === 'zoom') {
+    return { ...base, zoomFov: 20, id: type }; // Default: zoom in to 20
+  }
+  if (type === 'dollyZoom') {
+    return { ...base, duration: 3, zoomFov: 10, id: type }; // Default: 3s, zoom to 10
   }
   if (type === 'truck') {
     return { ...base, truckAmount: 0.5, id: type };
@@ -119,6 +134,19 @@ export const useMotionStore = create<MotionState>((set, get) => ({
     controlsRef.getPosition(pos);
     controlsRef.getTarget(target);
 
+    // Build camera state object
+    const cameraState: any = {
+      azimuth: controlsRef.azimuthAngle,
+      polar: controlsRef.polarAngle,
+      distance: controlsRef.distance,
+      center: [target.x, target.y, target.z] as [number, number, number]
+    };
+
+    // Add FOV if camera is PerspectiveCamera
+    if (controlsRef.camera instanceof THREE.PerspectiveCamera) {
+      cameraState.fov = controlsRef.camera.fov;
+    }
+
     // Fill data based on field to set
     if (field === 'cameraPosition') {
       updateBlock(activeBlockId, { 
@@ -129,14 +157,12 @@ export const useMotionStore = create<MotionState>((set, get) => ({
         targetPosition: [target.x, target.y, target.z] 
       });
     } else if (field === 'startState') {
-      // Calculate Polar/Azimuth from current state
       updateBlock(activeBlockId, {
-        startState: {
-          azimuth: controlsRef.azimuthAngle,
-          polar: controlsRef.polarAngle,
-          distance: controlsRef.distance,
-          center: [target.x, target.y, target.z]
-        }
+        startState: cameraState
+      });
+    } else if (field === 'endState') {
+      updateBlock(activeBlockId, {
+        endState: cameraState
       });
     }
   }
