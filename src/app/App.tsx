@@ -1,8 +1,9 @@
-import { AdaptiveDpr, CameraControls } from "@react-three/drei";
+import { AdaptiveDpr, Backdrop, CameraControls } from "@react-three/drei";
 import { CanvasCapture } from "@packages/r3f-gist/components/utility";
 import { LevaWrapper } from "@packages/r3f-gist/components";
 import { Canvas } from "@react-three/fiber";
 import { Scene } from "./Scene";
+import Effects from "../components/Effects";
 
 export default function App() {
     return <>
@@ -21,7 +22,8 @@ export default function App() {
             performance={{ min: 0.5, max: 1 }}
         >
             <AdaptiveDpr pixelated />
-            
+
+            <color attach="background" args={["#000000"]} />
             <Scene />
 
             <CameraControls makeDefault />
