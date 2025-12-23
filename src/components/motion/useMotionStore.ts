@@ -3,6 +3,17 @@ import { CameraControls } from '@react-three/drei';
 import { BlockConfig } from './MotionSequencer';
 import { MotionBlockOptions } from './motionBlocks';
 import * as THREE from 'three';
+import { getAllFiles, saveFile, getFile, deleteFile, migrateFromLocalStorage, type ExportedFile } from './fileStorage';
+
+export interface SavedSequence {
+  id: string;
+  name: string;
+  blocks: BlockConfig[];
+  createdAt: number;
+  updatedAt: number;
+}
+
+// ExportedFile is now imported from fileStorage.ts
 
 interface MotionState {
   blocks: BlockConfig[];
@@ -20,7 +31,25 @@ interface MotionState {
   
   // Core feature: Capture current camera state to current Block
   captureCameraToBlock: (field: 'startState' | 'endState' | 'targetPosition' | 'cameraPosition') => void;
+  
+  // Save/Load sequences
+  saveSequence: (name: string) => string; // Returns sequence ID
+  loadSequence: (id: string) => void;
+  deleteSequence: (id: string) => void;
+  getSavedSequences: () => SavedSequence[];
+  clearBlocks: () => void;
+  
+  // Export/Import to/from file system (managed in IndexedDB)
+  exportSequenceToFiles: (name: string) => Promise<string>; // Returns file ID
+  loadSequenceFromFiles: (id: string) => Promise<void>;
+  deleteExportedFile: (id: string) => Promise<void>;
+  getExportedFiles: () => Promise<ExportedFile[]>;
+  downloadExportedFile: (id: string) => Promise<void>; // Download as JSON file
+  importFileToStorage: (fileContent: string, name?: string) => Promise<boolean>; // Import and add to storage
 }
+
+// Re-export ExportedFile type
+export type { ExportedFile } from './fileStorage';
 
 // Helper function: Get default options for different block types
 const getDefaultOptions = (type: string): Partial<BlockConfig> => {
@@ -164,6 +193,199 @@ export const useMotionStore = create<MotionState>((set, get) => ({
       updateBlock(activeBlockId, {
         endState: cameraState
       });
+    }
+  },
+
+  clearBlocks: () => set({ blocks: [], activeBlockId: null }),
+
+  saveSequence: (name: string) => {
+    const { blocks } = get();
+    const now = Date.now();
+    const id = `seq-${now}`;
+    
+    const sequence: SavedSequence = {
+      id,
+      name,
+      blocks: JSON.parse(JSON.stringify(blocks)), // Deep clone
+      createdAt: now,
+      updatedAt: now
+    };
+
+    // Get existing sequences from localStorage
+    const existing = localStorage.getItem('motionSequences');
+    const sequences: SavedSequence[] = existing ? JSON.parse(existing) : [];
+    
+    // Add new sequence
+    sequences.push(sequence);
+    
+    // Save back to localStorage
+    localStorage.setItem('motionSequences', JSON.stringify(sequences));
+    
+    return id;
+  },
+
+  loadSequence: (id: string) => {
+    const existing = localStorage.getItem('motionSequences');
+    if (!existing) return;
+    
+    const sequences: SavedSequence[] = JSON.parse(existing);
+    const sequence = sequences.find(s => s.id === id);
+    
+    if (sequence) {
+      set({ 
+        blocks: sequence.blocks,
+        activeBlockId: sequence.blocks.length > 0 ? sequence.blocks[0].id : null
+      });
+    }
+  },
+
+  deleteSequence: (id: string) => {
+    const existing = localStorage.getItem('motionSequences');
+    if (!existing) return;
+    
+    const sequences: SavedSequence[] = JSON.parse(existing);
+    const filtered = sequences.filter(s => s.id !== id);
+    localStorage.setItem('motionSequences', JSON.stringify(filtered));
+  },
+
+  getSavedSequences: (): SavedSequence[] => {
+    const existing = localStorage.getItem('motionSequences');
+    if (!existing) return [];
+    
+    const sequences: SavedSequence[] = JSON.parse(existing);
+    // Sort by updatedAt descending (most recent first)
+    return sequences.sort((a, b) => b.updatedAt - a.updatedAt);
+  },
+
+  // Export sequence to files storage (IndexedDB)
+  exportSequenceToFiles: async (name: string) => {
+    const { blocks } = get();
+    const now = Date.now();
+    const id = `file-${now}`;
+    
+    const data = {
+      version: '1.0',
+      exportedAt: new Date().toISOString(),
+      blocks: blocks
+    };
+    
+    const fileContent = JSON.stringify(data, null, 2);
+    
+    const exportedFile: ExportedFile = {
+      id,
+      name,
+      blocks: JSON.parse(JSON.stringify(blocks)), // Deep clone
+      exportedAt: now,
+      fileContent
+    };
+
+    try {
+      await saveFile(exportedFile);
+      return id;
+    } catch (error) {
+      console.error('Failed to save file:', error);
+      alert('Failed to save file');
+      return '';
+    }
+  },
+
+  // Load sequence from files storage
+  loadSequenceFromFiles: async (id: string) => {
+    try {
+      const file = await getFile(id);
+      if (file) {
+        set({ 
+          blocks: file.blocks,
+          activeBlockId: file.blocks.length > 0 ? file.blocks[0].id : null
+        });
+      }
+    } catch (error) {
+      console.error('Failed to load file:', error);
+      alert('Failed to load file');
+    }
+  },
+
+  // Delete exported file
+  deleteExportedFile: async (id: string) => {
+    try {
+      await deleteFile(id);
+    } catch (error) {
+      console.error('Failed to delete file:', error);
+      alert('Failed to delete file');
+    }
+  },
+
+  // Get all exported files
+  getExportedFiles: async (): Promise<ExportedFile[]> => {
+    try {
+      // Migrate from localStorage on first run
+      await migrateFromLocalStorage();
+      return await getAllFiles();
+    } catch (error) {
+      console.error('Failed to get files:', error);
+      return [];
+    }
+  },
+
+  // Download exported file as JSON file
+  downloadExportedFile: async (id: string) => {
+    try {
+      const file = await getFile(id);
+      if (!file) return;
+      
+      const blob = new Blob([file.fileContent], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${file.name}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Failed to download file:', error);
+      alert('Failed to download file');
+    }
+  },
+
+  // Import file and add to storage
+  importFileToStorage: async (fileContent: string, name?: string): Promise<boolean> => {
+    try {
+      const data = JSON.parse(fileContent);
+      
+      // Support both old format (just blocks array) and new format (with metadata)
+      const blocksToImport = data.blocks || data;
+      
+      if (!Array.isArray(blocksToImport)) {
+        throw new Error('Invalid file format: blocks must be an array');
+      }
+      
+      // Validate blocks structure
+      for (const block of blocksToImport) {
+        if (!block.id || typeof block.id !== 'string') {
+          throw new Error('Invalid block format: missing or invalid id');
+        }
+      }
+      
+      const now = Date.now();
+      const id = `file-${now}`;
+      const fileName = name || `imported-${new Date().toLocaleDateString()}`;
+      
+      const exportedFile: ExportedFile = {
+        id,
+        name: fileName,
+        blocks: blocksToImport,
+        exportedAt: now,
+        fileContent
+      };
+
+      await saveFile(exportedFile);
+      return true;
+    } catch (error) {
+      console.error('Failed to import file:', error);
+      alert(`Failed to import file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      return false;
     }
   }
 }));

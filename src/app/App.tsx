@@ -74,7 +74,6 @@ export default function App() {
             <Scene isPlaying={isPlaying} setIsPlaying={setIsPlaying} />
 
             <CameraControls makeDefault />
-            <CanvasCapture />
         </Canvas>
     </>
 }

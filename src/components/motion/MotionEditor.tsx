@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useMotionStore } from './useMotionStore';
+import { useMotionStore, type ExportedFile } from './useMotionStore';
 
 // Helper functions for degree/radian conversion
 const radToDeg = (rad: number): number => (rad * 180) / Math.PI;
@@ -65,8 +65,40 @@ export const MotionEditor = () => {
     captureCameraToBlock, 
     removeBlock,
     moveBlockUp,
-    moveBlockDown
+    moveBlockDown,
+    clearBlocks,
+    exportSequenceToFiles,
+    loadSequenceFromFiles,
+    deleteExportedFile,
+    getExportedFiles,
+    downloadExportedFile,
+    importFileToStorage
   } = useMotionStore();
+
+  const [showExportDialog, setShowExportDialog] = useState(false);
+  const [showImportDialog, setShowImportDialog] = useState(false);
+  const [exportFileName, setExportFileName] = useState('');
+  const [exportedFiles, setExportedFiles] = useState<ExportedFile[]>([]);
+  const [isLoadingFiles, setIsLoadingFiles] = useState(false);
+
+  // Load files on mount and when import dialog opens
+  useEffect(() => {
+    if (showImportDialog) {
+      loadFiles();
+    }
+  }, [showImportDialog]);
+
+  const loadFiles = async () => {
+    setIsLoadingFiles(true);
+    try {
+      const files = await getExportedFiles();
+      setExportedFiles(files);
+    } catch (error) {
+      console.error('Failed to load files:', error);
+    } finally {
+      setIsLoadingFiles(false);
+    }
+  };
 
   const activeBlock = blocks.find(b => b.id === activeBlockId);
 
@@ -118,6 +150,349 @@ export const MotionEditor = () => {
       <h3 style={{ marginTop: 0, marginBottom: 20, fontSize: '18px' }}>
         Motion Sequence Editor
       </h3>
+      
+      {/* Save/Load Controls */}
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            onClick={() => {
+              if (blocks.length === 0) {
+                alert('No blocks to export');
+                return;
+              }
+              setExportFileName('');
+              setShowExportDialog(true);
+            }}
+            style={{
+              flex: 1,
+              padding: '8px 12px',
+              background: '#8e44ad',
+              color: 'white',
+              border: 'none',
+              borderRadius: 4,
+              cursor: 'pointer',
+              fontSize: '13px',
+              fontWeight: 'bold'
+            }}
+          >
+            💾 Save
+          </button>
+          <button
+            onClick={async () => {
+              setShowImportDialog(true);
+            }}
+            style={{
+              flex: 1,
+              padding: '8px 12px',
+              background: '#2980b9',
+              color: 'white',
+              border: 'none',
+              borderRadius: 4,
+              cursor: 'pointer',
+              fontSize: '13px',
+              fontWeight: 'bold'
+            }}
+          >
+            📂 Load
+          </button>
+        </div>
+        {blocks.length > 0 && (
+          <button
+            onClick={() => {
+              if (confirm('Clear all blocks? This cannot be undone.')) {
+                clearBlocks();
+              }
+            }}
+            style={{
+              width: '100%',
+              marginTop: 8,
+              padding: '8px 12px',
+              background: '#c0392b',
+              color: 'white',
+              border: 'none',
+              borderRadius: 4,
+              cursor: 'pointer',
+              fontSize: '13px'
+            }}
+          >
+            🗑️ Clear All Blocks
+          </button>
+        )}
+      </div>
+
+      {/* Save Dialog (Export File) */}
+      {showExportDialog && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0, 0, 0, 0.7)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 20000
+        }}>
+          <div style={{
+            background: '#1a1a1a',
+            padding: 20,
+            borderRadius: 8,
+            width: 400,
+            border: '1px solid #444'
+          }}>
+            <h4 style={{ marginTop: 0, marginBottom: 15 }}>Save Sequence</h4>
+            <input
+              type="text"
+              placeholder="File name..."
+              value={exportFileName}
+              onChange={(e) => setExportFileName(e.target.value)}
+              onKeyDown={async (e) => {
+                if (e.key === 'Enter' && exportFileName.trim()) {
+                  await exportSequenceToFiles(exportFileName.trim());
+                  setShowExportDialog(false);
+                  setExportFileName('');
+                }
+              }}
+              style={{
+                width: '100%',
+                padding: '8px',
+                background: '#222',
+                border: '1px solid #444',
+                borderRadius: 4,
+                color: '#fff',
+                fontSize: '14px',
+                marginBottom: 15
+              }}
+              autoFocus
+            />
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={async () => {
+                  if (exportFileName.trim()) {
+                    await exportSequenceToFiles(exportFileName.trim());
+                    setShowExportDialog(false);
+                    setExportFileName('');
+                  }
+                }}
+                disabled={!exportFileName.trim()}
+                style={{
+                  flex: 1,
+                  padding: '8px',
+                  background: exportFileName.trim() ? '#8e44ad' : '#555',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: 4,
+                  cursor: exportFileName.trim() ? 'pointer' : 'not-allowed',
+                  fontSize: '13px'
+                }}
+              >
+                Export
+              </button>
+              <button
+                onClick={() => {
+                  setShowExportDialog(false);
+                  setExportFileName('');
+                }}
+                style={{
+                  flex: 1,
+                  padding: '8px',
+                  background: '#555',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: 4,
+                  cursor: 'pointer',
+                  fontSize: '13px'
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Load Dialog (Import File) */}
+      {showImportDialog && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0, 0, 0, 0.7)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 20000
+        }}>
+          <div style={{
+            background: '#1a1a1a',
+            padding: 20,
+            borderRadius: 8,
+            width: 500,
+            maxHeight: '80vh',
+            overflowY: 'auto',
+            border: '1px solid #444'
+          }}>
+            <h4 style={{ marginTop: 0, marginBottom: 15 }}>Load Sequence</h4>
+            
+            {/* File Upload */}
+            <div style={{ marginBottom: 20, padding: 15, background: '#222', borderRadius: 4, border: '1px solid #444' }}>
+              <label
+                style={{
+                  display: 'block',
+                  padding: '10px',
+                  background: '#e67e22',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: 4,
+                  cursor: 'pointer',
+                  fontSize: '13px',
+                  fontWeight: 'bold',
+                  textAlign: 'center'
+                }}
+              >
+                📁 Choose File to Import
+                <input
+                  type="file"
+                  accept=".json"
+                  style={{ display: 'none' }}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    
+                    const reader = new FileReader();
+                    reader.onload = async (event) => {
+                      const content = event.target?.result as string;
+                      if (content) {
+                        const fileName = file.name.replace('.json', '');
+                        if (await importFileToStorage(content, fileName)) {
+                          await loadFiles();
+                        }
+                      }
+                    };
+                    reader.onerror = () => {
+                      alert('Failed to read file');
+                    };
+                    reader.readAsText(file);
+                    
+                    // Reset input so same file can be selected again
+                    e.target.value = '';
+                  }}
+                />
+              </label>
+            </div>
+
+            {/* Saved Files List */}
+            <div style={{ marginBottom: 15 }}>
+              <div style={{ fontSize: '12px', color: '#aaa', marginBottom: 10 }}>
+                Saved Files ({exportedFiles.length})
+              </div>
+              {exportedFiles.length === 0 ? (
+                <div style={{ color: '#888', fontSize: '12px', fontStyle: 'italic', marginBottom: 15 }}>
+                  No exported files found.
+                </div>
+              ) : (
+                <div>
+                  {exportedFiles.map((file) => (
+                    <div
+                      key={file.id}
+                      style={{
+                        padding: 12,
+                        background: '#222',
+                        borderRadius: 4,
+                        marginBottom: 8,
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        border: '1px solid #444'
+                      }}
+                    >
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 'bold', marginBottom: 4 }}>{file.name}</div>
+                        <div style={{ fontSize: '11px', color: '#888' }}>
+                          {file.blocks.length} block{file.blocks.length !== 1 ? 's' : ''} • 
+                          Exported {new Date(file.exportedAt).toLocaleString()}
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <button
+                          onClick={async () => {
+                            await loadSequenceFromFiles(file.id);
+                            setShowImportDialog(false);
+                          }}
+                          style={{
+                            padding: '6px 12px',
+                            background: '#2980b9',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: 4,
+                            cursor: 'pointer',
+                            fontSize: '12px'
+                          }}
+                        >
+                          Load
+                        </button>
+                        <button
+                          onClick={async () => {
+                            await downloadExportedFile(file.id);
+                          }}
+                          style={{
+                            padding: '6px 12px',
+                            background: '#8e44ad',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: 4,
+                            cursor: 'pointer',
+                            fontSize: '12px'
+                          }}
+                        >
+                          Download
+                        </button>
+                        <button
+                          onClick={async () => {
+                            if (confirm(`Delete "${file.name}"?`)) {
+                              await deleteExportedFile(file.id);
+                              await loadFiles();
+                            }
+                          }}
+                          style={{
+                            padding: '6px 12px',
+                            background: '#c0392b',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: 4,
+                            cursor: 'pointer',
+                            fontSize: '12px'
+                          }}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <button
+              onClick={() => setShowImportDialog(false)}
+              style={{
+                width: '100%',
+                padding: '8px',
+                background: '#555',
+                color: 'white',
+                border: 'none',
+                borderRadius: 4,
+                cursor: 'pointer',
+                fontSize: '13px'
+              }}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
       
       {/* Block List */}
       <div style={{ marginBottom: 20 }}>
