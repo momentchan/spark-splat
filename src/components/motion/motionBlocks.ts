@@ -22,14 +22,14 @@ export interface MotionBlockOptions {
   distanceDelta?: number;
   panAmount?: number;
   truckAmount?: number;
-  arcAngle?: number;
+  arcAngle?: number; // Arc angle in radians (converted from degrees in UI)
   
   // Absolute positioning parameters
   targetPosition?: [number, number, number]; // [x, y, z] target
   cameraPosition?: [number, number, number]; // [x, y, z] camera pos (optional)
   
   // Composite motion parameters (for simultaneous movements)
-  rotate?: { azimuth?: number; polar?: number }; // Rotation angles in radians
+  rotate?: { azimuth?: number; polar?: number }; // Rotation angles in radians (converted from degrees in UI)
   dolly?: number; // Distance change amount
   truck?: { x?: number; y?: number }; // Translation amounts
   
@@ -66,9 +66,13 @@ export const createGenericBlock = (opts: MotionBlockOptions = {}): MotionBlock =
     const tl = gsap.timeline();
     const duration = opts.duration ?? 2;
     const ease = opts.ease ?? "power2.inOut";
+    
+    // Proxy object to hold eased progress value
+    const progressProxy = { value: 0 };
     let initialState = { azimuth: 0, polar: 0, distance: 0 };
 
-    tl.to({}, {
+    tl.to(progressProxy, {
+      value: 1,
       duration,
       ease,
       onStart: () => {
@@ -79,10 +83,10 @@ export const createGenericBlock = (opts: MotionBlockOptions = {}): MotionBlock =
         initialState.distance = controls.distance;
       },
       onUpdate: function() {
-        // Template: use this.progress() for interpolation
-        // Example: const p = this.progress();
+        // Template: use progressProxy.value for interpolation (this is eased)
+        // Example: const p = progressProxy.value;
         // controls.azimuthAngle = initialState.azimuth + (p * offset);
-        void this.progress(); // Placeholder - implement your motion logic here
+        void progressProxy.value; // Placeholder - implement your motion logic here
       }
     });
     return tl;
@@ -100,17 +104,20 @@ export const createDollyBlock = (opts: MotionBlockOptions = {}): MotionBlock => 
     const ease = opts.ease ?? "power2.inOut";
     const delta = opts.distanceDelta ?? radius * 0.5;
     
+    // Proxy object to hold eased progress value
+    const progressProxy = { value: 0 };
     let startDistance: number;
 
-    tl.to({}, {
+    tl.to(progressProxy, {
+      value: 1, // Tween from 0 to 1
       duration,
-      ease,
+      ease, // Easing now applies to progressProxy.value
       onStart: () => {
         applyStartState(controls, opts.startState);
         startDistance = controls.distance;
       },
       onUpdate: function () {
-        const p = this.progress();
+        const p = progressProxy.value; // This is the eased progress value
         controls.dollyTo(startDistance + delta * p, false);
       }
     });
@@ -129,9 +136,12 @@ export const createPanBlock = (opts: MotionBlockOptions = {}): MotionBlock => ({
     const ease = opts.ease ?? "power2.inOut";
     const amount = opts.panAmount ?? radius * 0.5;
     
+    // Proxy object to hold eased progress value
+    const progressProxy = { value: 0 };
     let lastProgress = 0;
     
-    tl.to({}, {
+    tl.to(progressProxy, {
+      value: 1,
       duration,
       ease,
       onStart: function () {
@@ -139,8 +149,8 @@ export const createPanBlock = (opts: MotionBlockOptions = {}): MotionBlock => ({
         lastProgress = 0;
       },
       onUpdate: function () {
-        const p = this.progress();
-        const deltaProgress = p - lastProgress;
+        const p = progressProxy.value; // Eased progress value
+        const deltaProgress = p - lastProgress; // Delta will now reflect easing curve
         // Truck horizontally using incremental delta
         controls.truck(amount * deltaProgress, 0, false);
         lastProgress = p;
@@ -161,9 +171,12 @@ export const createTruckBlock = (opts: MotionBlockOptions = {}): MotionBlock => 
     const ease = opts.ease ?? "power2.inOut";
     const amount = opts.truckAmount ?? radius * 0.5;
     
+    // Proxy object to hold eased progress value
+    const progressProxy = { value: 0 };
     let lastProgress = 0;
     
-    tl.to({}, {
+    tl.to(progressProxy, {
+      value: 1,
       duration,
       ease,
       onStart: function () {
@@ -171,8 +184,8 @@ export const createTruckBlock = (opts: MotionBlockOptions = {}): MotionBlock => 
         lastProgress = 0;
       },
       onUpdate: function () {
-        const p = this.progress();
-        const deltaProgress = p - lastProgress;
+        const p = progressProxy.value; // Eased progress value
+        const deltaProgress = p - lastProgress; // Delta will now reflect easing curve
         // Truck horizontally using incremental delta
         controls.truck(amount * deltaProgress, 0, false);
         lastProgress = p;
@@ -194,10 +207,13 @@ export const createArcBlock = (opts: MotionBlockOptions = {}): MotionBlock => ({
     const angle = opts.arcAngle ?? Math.PI / 2;
     const delta = opts.distanceDelta ?? radius * 0.3;
     
+    // Proxy object to hold eased progress value
+    const progressProxy = { value: 0 };
     let startAngle: number;
     let startDistance: number;
     
-    tl.to({}, {
+    tl.to(progressProxy, {
+      value: 1,
       duration,
       ease,
       onStart: function () {
@@ -206,7 +222,7 @@ export const createArcBlock = (opts: MotionBlockOptions = {}): MotionBlock => ({
         startDistance = controls.distance;
       },
       onUpdate: function () {
-        const p = this.progress();
+        const p = progressProxy.value; // Eased progress value
         // Rotate azimuth
         controls.azimuthAngle = startAngle + angle * p;
         // Change distance (dolly)
@@ -230,6 +246,9 @@ export const createCompositeBlock = (opts: MotionBlockOptions = {}): MotionBlock
     const duration = opts.duration ?? 2;
     const ease = opts.ease ?? "power2.inOut";
 
+    // Proxy object to hold eased progress value
+    const progressProxy = { value: 0 };
+
     // Initial state cache
     let startState = { 
       azimuth: 0, 
@@ -240,9 +259,10 @@ export const createCompositeBlock = (opts: MotionBlockOptions = {}): MotionBlock
     // Truck needs special handling because it's incremental - track last progress
     let lastProgress = 0;
 
-    tl.to({}, {
+    tl.to(progressProxy, {
+      value: 1,
       duration,
-      ease,
+      ease, // Easing now applies to progressProxy.value
       onStart: () => {
         applyStartState(controls, opts.startState);
         // Lock initial state
@@ -252,8 +272,8 @@ export const createCompositeBlock = (opts: MotionBlockOptions = {}): MotionBlock
         lastProgress = 0;
       },
       onUpdate: function () {
-        const p = this.progress(); // Progress from 0 to 1
-        const deltaProgress = p - lastProgress; // Increment for this frame (for Truck)
+        const p = progressProxy.value; // Eased progress value (0 to 1)
+        const deltaProgress = p - lastProgress; // Delta will now reflect easing curve
 
         // A. Handle rotation (Arc/Rotate) - absolute calculation
         if (opts.rotate) {
@@ -273,6 +293,7 @@ export const createCompositeBlock = (opts: MotionBlockOptions = {}): MotionBlock
 
         // C. Handle truck (translation) - incremental calculation
         // Truck must use increment (delta) because it doesn't have a simple absolute setter
+        // Delta will now reflect easing: slow start, fast middle, slow end (for easeInOut)
         if (opts.truck) {
           const tx = (opts.truck.x ?? 0) * deltaProgress;
           const ty = (opts.truck.y ?? 0) * deltaProgress;
@@ -308,10 +329,14 @@ export const createMoveToBlock = (opts: MotionBlockOptions = {}): MotionBlock =>
       const duration = opts.duration ?? 2;
       const ease = opts.ease ?? "power2.inOut";
 
+      // Proxy object to hold eased progress value
+      const progressProxy = { value: 0 };
+      
       // Record start state
       const start = { az: 0, pol: 0, dist: 0 };
       
-      tl.to({}, {
+      tl.to(progressProxy, {
+        value: 1,
         duration,
         ease,
         onStart: () => {
@@ -327,9 +352,9 @@ export const createMoveToBlock = (opts: MotionBlockOptions = {}): MotionBlock =>
         },
         onUpdate: function () {
           // Placeholder: If you want to move to specific angles,
-          // you would interpolate here using this.progress()
+          // you would interpolate here using progressProxy.value
           // For full XYZ positioning, use the absolute move block below
-          void this.progress(); // Placeholder - implement interpolation logic here
+          void progressProxy.value; // Placeholder - implement interpolation logic here
         }
       });
       
