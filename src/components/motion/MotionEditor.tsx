@@ -29,7 +29,12 @@ const NumberInput = ({ value, onChange, precision = 2, ...props }: NumberInputPr
     <input
       {...props}
       type="number"
+      className="number-input-no-spinner"
       value={buffer}
+      style={{
+        boxSizing: 'border-box',
+        ...props.style
+      }}
       onChange={(e) => {
         const raw = e.target.value;
         setBuffer(raw); // Update UI display immediately, allowing "-" to be displayed
@@ -55,7 +60,12 @@ const NumberInput = ({ value, onChange, precision = 2, ...props }: NumberInputPr
   );
 };
 
-export const MotionEditor = () => {
+interface MotionEditorProps {
+  isPlaying: boolean;
+  setIsPlaying: (playing: boolean) => void;
+}
+
+export const MotionEditor = ({ isPlaying, setIsPlaying }: MotionEditorProps) => {
   const { 
     blocks, 
     addBlock, 
@@ -130,23 +140,44 @@ export const MotionEditor = () => {
   ];
 
   return (
-    <div style={{ 
-      position: 'fixed', 
-      top: 20, 
-      right: 20, 
-      width: 320, 
-      background: '#1a1a1a', 
-      color: '#fff', 
-      padding: 20, 
-      borderRadius: 8, 
-      maxHeight: '90vh', 
-      overflowY: 'auto',
-      boxShadow: '0 4px 6px rgba(0, 0, 0, 0.3)',
-      fontFamily: 'system-ui, -apple-system, sans-serif',
-      fontSize: '14px',
-      zIndex: 10001, // Higher than Leva (which is usually 10000)
-      pointerEvents: 'auto' // Ensure it can receive mouse events
-    }}>
+    <>
+      <style>{`
+        .motion-editor-scroll::-webkit-scrollbar {
+          display: none; /* Chrome, Safari, Opera */
+        }
+        .motion-editor-scroll {
+          scrollbar-width: none; /* Firefox */
+          -ms-overflow-style: none; /* IE and Edge */
+        }
+        .number-input-no-spinner::-webkit-inner-spin-button,
+        .number-input-no-spinner::-webkit-outer-spin-button {
+          -webkit-appearance: none;
+          margin: 0;
+        }
+        .number-input-no-spinner {
+          -moz-appearance: textfield;
+        }
+      `}</style>
+      <div 
+        className="motion-editor-scroll"
+        style={{ 
+          position: 'fixed', 
+          top: 20, 
+          left: 20, 
+          width: 320, 
+          background: '#1a1a1a', 
+          color: '#fff', 
+          padding: 20, 
+          borderRadius: 8, 
+          maxHeight: '90vh', 
+          overflowY: 'auto',
+          boxShadow: '0 4px 6px rgba(0, 0, 0, 0.3)',
+          fontFamily: 'system-ui, -apple-system, sans-serif',
+          fontSize: '14px',
+          zIndex: 10001, // Higher than Leva (which is usually 10000)
+          pointerEvents: 'auto' // Ensure it can receive mouse events
+        }}
+      >
       <h3 style={{ marginTop: 0, marginBottom: 20, fontSize: '18px' }}>
         Motion Sequence Editor
       </h3>
@@ -196,28 +227,29 @@ export const MotionEditor = () => {
             📂 Load
           </button>
         </div>
-        {blocks.length > 0 && (
-          <button
-            onClick={() => {
-              if (confirm('Clear all blocks? This cannot be undone.')) {
-                clearBlocks();
-              }
-            }}
-            style={{
-              width: '100%',
-              marginTop: 8,
-              padding: '8px 12px',
-              background: '#c0392b',
-              color: 'white',
-              border: 'none',
-              borderRadius: 4,
-              cursor: 'pointer',
-              fontSize: '13px'
-            }}
-          >
-            🗑️ Clear All Blocks
-          </button>
-        )}
+        {/* Play/Pause Button */}
+        <button
+          onClick={() => setIsPlaying(!isPlaying)}
+          disabled={blocks.length === 0}
+          style={{
+            width: '100%',
+            marginTop: 8,
+            padding: '8px 12px',
+            background: blocks.length === 0 ? '#444' : (isPlaying ? '#d32f2f' : '#27ae60'),
+            color: 'white',
+            border: 'none',
+            borderRadius: 4,
+            cursor: blocks.length === 0 ? 'not-allowed' : 'pointer',
+            fontSize: '13px',
+            fontWeight: 'bold',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 6
+          }}
+        >
+          {isPlaying ? '⏸ Pause' : '▶ Play'}
+        </button>
       </div>
 
       {/* Save Dialog (Export File) */}
@@ -389,9 +421,13 @@ export const MotionEditor = () => {
               <div style={{ fontSize: '12px', color: '#aaa', marginBottom: 10 }}>
                 Saved Files ({exportedFiles.length})
               </div>
-              {exportedFiles.length === 0 ? (
+              {isLoadingFiles ? (
                 <div style={{ color: '#888', fontSize: '12px', fontStyle: 'italic', marginBottom: 15 }}>
-                  No exported files found.
+                  Loading files...
+                </div>
+              ) : exportedFiles.length === 0 ? (
+                <div style={{ color: '#888', fontSize: '12px', fontStyle: 'italic', marginBottom: 15 }}>
+                  No saved files found.
                 </div>
               ) : (
                 <div>
@@ -493,15 +529,70 @@ export const MotionEditor = () => {
           </div>
         </div>
       )}
+
+      {/* Add Block Buttons */}
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ fontSize: '12px', color: '#aaa', marginBottom: 8 }}>
+          Add Block
+        </div>
+        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+          {blockTypes.map(type => (
+            <button 
+              key={type} 
+              onClick={() => addBlock(type)}
+              style={{
+                background: '#2a2a2a',
+                color: '#fff',
+                border: '1px solid #444',
+                borderRadius: 4,
+                padding: '6px 12px',
+                cursor: 'pointer',
+                fontSize: '12px',
+                transition: 'all 0.2s'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = '#333';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = '#2a2a2a';
+              }}
+            >
+              + {type}
+            </button>
+          ))}
+        </div>
+      </div>
       
       {/* Block List */}
       <div style={{ marginBottom: 20 }}>
-        <div style={{ fontSize: '12px', color: '#aaa', marginBottom: 8 }}>
-          Blocks ({blocks.length})
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <div style={{ fontSize: '12px', color: '#aaa' }}>
+            Blocks ({blocks.length})
+          </div>
+          {blocks.length > 0 && (
+            <button
+              onClick={() => {
+                if (confirm('Clear all blocks? This cannot be undone.')) {
+                  clearBlocks();
+                }
+              }}
+              style={{
+                padding: '4px 8px',
+                background: '#c0392b',
+                color: 'white',
+                border: 'none',
+                borderRadius: 4,
+                cursor: 'pointer',
+                fontSize: '11px'
+              }}
+            >
+              🗑️ Clear All
+            </button>
+          )}
         </div>
         {blocks.length === 0 ? (
           <div style={{ color: '#888', fontSize: '12px', fontStyle: 'italic' }}>
-            No blocks yet. Add one below.
+            No blocks yet. Add one above.
           </div>
         ) : (
           blocks.map((block, index) => (
@@ -609,39 +700,6 @@ export const MotionEditor = () => {
             </div>
           ))
         )}
-      </div>
-
-      {/* Add Block Buttons */}
-      <div style={{ marginBottom: 20 }}>
-        <div style={{ fontSize: '12px', color: '#aaa', marginBottom: 8 }}>
-          Add Block
-        </div>
-        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-          {blockTypes.map(type => (
-            <button 
-              key={type} 
-              onClick={() => addBlock(type)}
-              style={{
-                background: '#2a2a2a',
-                color: '#fff',
-                border: '1px solid #444',
-                borderRadius: 4,
-                padding: '6px 12px',
-                cursor: 'pointer',
-                fontSize: '12px',
-                transition: 'all 0.2s'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = '#333';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = '#2a2a2a';
-              }}
-            >
-              + {type}
-            </button>
-          ))}
-        </div>
       </div>
 
       <hr style={{ borderColor: '#444', margin: '20px 0' }}/>
@@ -815,20 +873,21 @@ export const MotionEditor = () => {
                 <label style={{ display: 'block', marginBottom: 5, fontSize: '12px', color: '#aaa' }}>
                   Duration (seconds)
                 </label>
-                <input 
-                  type="number" 
+                <NumberInput
                   step="0.1"
                   min="0.1"
+                  precision={1}
                   value={activeBlock.duration ?? 2} 
-                  onChange={e => updateBlock(activeBlock.id, { duration: parseFloat(e.target.value) })}
+                  onChange={(val) => updateBlock(activeBlock.id, { duration: val })}
                   style={{ 
                     width: '100%', 
                     padding: '6px',
-                    background: '#222',
+                    background: '#1a1a1a',
                     border: '1px solid #444',
                     borderRadius: 4,
                     color: '#fff',
-                    fontSize: '14px'
+                    fontSize: '14px',
+                    boxSizing: 'border-box'
                   }}
                 />
               </div>
@@ -942,20 +1001,21 @@ export const MotionEditor = () => {
                 <label style={{ display: 'block', marginBottom: 5, fontSize: '12px', color: '#aaa' }}>
                   Duration (seconds)
                 </label>
-                <input 
-                  type="number" 
+                <NumberInput
                   step="0.1"
                   min="0.1"
+                  precision={1}
                   value={activeBlock.duration ?? 2} 
-                  onChange={e => updateBlock(activeBlock.id, { duration: parseFloat(e.target.value) })}
+                  onChange={(val) => updateBlock(activeBlock.id, { duration: val })}
                   style={{ 
                     width: '100%', 
                     padding: '6px',
-                    background: '#222',
+                    background: '#1a1a1a',
                     border: '1px solid #444',
                     borderRadius: 4,
                     color: '#fff',
-                    fontSize: '14px'
+                    fontSize: '14px',
+                    boxSizing: 'border-box'
                   }}
                 />
               </div>
@@ -1118,11 +1178,12 @@ export const MotionEditor = () => {
                 style={{ 
                   width: '100%', 
                   padding: '6px',
-                  background: '#222',
+                  background: '#1a1a1a',
                   border: '1px solid #444',
                   borderRadius: 4,
                   color: '#fff',
-                  fontSize: '14px'
+                  fontSize: '14px',
+                  boxSizing: 'border-box'
                 }}
               />
             </div>
@@ -1348,7 +1409,8 @@ export const MotionEditor = () => {
           Select a block to edit
         </p>
       )}
-    </div>
+      </div>
+    </>
   );
 };
 
