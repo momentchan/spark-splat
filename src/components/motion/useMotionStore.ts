@@ -19,6 +19,7 @@ interface MotionState {
   blocks: BlockConfig[];
   activeBlockId: string | null; // Currently editing Block ID
   controlsRef: CameraControls | null; // Store CameraControls instance
+  showBezierDebug: boolean; // Toggle for bezier curve debug visualization
 
   setControls: (controls: CameraControls) => void;
   addBlock: (type: string) => void;
@@ -28,6 +29,7 @@ interface MotionState {
   setBlocks: (blocks: BlockConfig[]) => void;
   moveBlockUp: (id: string) => void;
   moveBlockDown: (id: string) => void;
+  toggleBezierDebug: () => void;
   
   // Core feature: Capture current camera state to current Block
   captureCameraToBlock: (field: 'startState' | 'endState' | 'targetPosition' | 'cameraPosition') => void;
@@ -88,6 +90,21 @@ const getDefaultOptions = (type: string): Partial<BlockConfig> => {
   if (type === 'truck') {
     return { ...base, truckAmount: 0.5, id: type };
   }
+  if (type === 'bezierCurve') {
+    return { 
+      ...base, 
+      duration: 3,
+      bezierCurve: {
+        p0: undefined, // Will use current camera position
+        p1: undefined,
+        p2: undefined,
+        p3: undefined,
+        lookAtTarget: [0, 0, 0], // Default to origin
+        maintainOrientation: false
+      },
+      id: type 
+    };
+  }
   
   return { ...base, id: type };
 };
@@ -96,8 +113,10 @@ export const useMotionStore = create<MotionState>((set, get) => ({
   blocks: [],
   activeBlockId: null,
   controlsRef: null,
+  showBezierDebug: true, // Default to showing debug
 
   setControls: (controls) => set({ controlsRef: controls }),
+  toggleBezierDebug: () => set((state) => ({ showBezierDebug: !state.showBezierDebug })),
 
   addBlock: (type) => {
     const timestamp = Date.now();

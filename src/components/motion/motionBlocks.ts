@@ -65,6 +65,16 @@ export interface MotionBlockOptions {
     fov?: number; // Field of view
     roll?: number; // Roll angle in radians
   };
+  
+  // Bezier curve parameters
+  bezierCurve?: {
+    p0?: [number, number, number]; // Start point (defaults to current camera position)
+    p1?: [number, number, number]; // Control point 1
+    p2?: [number, number, number]; // Control point 2
+    p3?: [number, number, number]; // End point
+    lookAtTarget?: [number, number, number]; // Optional: camera looks at this point while following curve
+    maintainOrientation?: boolean; // If true, camera maintains its orientation; if false, looks at lookAtTarget
+  };
 }
 
 /**
@@ -717,6 +727,131 @@ export const createMoveToBlock = (opts: MotionBlockOptions = {}): MotionBlock =>
         }
       });
 
+      return tl;
+    }
+  };
+};
+
+/**
+ * Block: Bezier Curve
+ * Camera follows a cubic bezier curve defined by 4 control points.
+ */
+export const createBezierCurveBlock = (opts: MotionBlockOptions = {}): MotionBlock => {
+  return {
+    id: "bezierCurve",
+    execute: ({ controls }) => {
+      const tl = gsap.timeline();
+      const duration = opts.duration ?? 3;
+      const ease = opts.ease ?? "power2.inOut";
+      
+      const bezierConfig = opts.bezierCurve;
+      if (!bezierConfig) {
+        console.warn("Bezier curve block: No bezier curve configuration provided");
+        return tl;
+      }
+      
+      // Proxy object to hold eased progress value
+      const progressProxy = { value: 0 };
+      
+      // Get control points
+      let p0: THREE.Vector3;
+      let p1: THREE.Vector3;
+      let p2: THREE.Vector3;
+      let p3: THREE.Vector3;
+      let lookAtTarget: THREE.Vector3 | null = null;
+      let maintainOrientation = bezierConfig.maintainOrientation ?? false;
+      let initialForward: THREE.Vector3 | null = null;
+      let initialUp: THREE.Vector3 | null = null;
+      let curve: THREE.CubicBezierCurve3;
+      
+      tl.to(progressProxy, {
+        value: 1,
+        duration,
+        ease,
+        onStart: () => {
+          // Get current camera position as default P0
+          const currentPos = new THREE.Vector3();
+          controls.getPosition(currentPos);
+          
+          // Set control points
+          // P0 explicitly defines the start position, so we don't need startState
+          p0 = bezierConfig.p0 
+            ? new THREE.Vector3(...bezierConfig.p0)
+            : currentPos.clone();
+          
+          p1 = bezierConfig.p1 
+            ? new THREE.Vector3(...bezierConfig.p1)
+            : currentPos.clone().add(new THREE.Vector3(2, 0, 0)); // Default offset
+          
+          p2 = bezierConfig.p2 
+            ? new THREE.Vector3(...bezierConfig.p2)
+            : currentPos.clone().add(new THREE.Vector3(4, 2, 0)); // Default offset
+          
+          p3 = bezierConfig.p3 
+            ? new THREE.Vector3(...bezierConfig.p3)
+            : currentPos.clone().add(new THREE.Vector3(6, 0, 0)); // Default offset
+          
+          // Set look-at target (defaults to [0, 0, 0])
+          // Check if lookAtTarget is explicitly set (not just default)
+          if (bezierConfig.lookAtTarget && 
+              (bezierConfig.lookAtTarget[0] !== 0 || 
+               bezierConfig.lookAtTarget[1] !== 0 || 
+               bezierConfig.lookAtTarget[2] !== 0)) {
+            lookAtTarget = new THREE.Vector3(...bezierConfig.lookAtTarget);
+          } else if (bezierConfig.lookAtTarget) {
+            // Explicitly set to [0, 0, 0]
+            lookAtTarget = new THREE.Vector3(0, 0, 0);
+          } else {
+            // Not set, use null to indicate no look-at target
+            lookAtTarget = null;
+          }
+          
+          // Store initial orientation if maintaining orientation
+          if (maintainOrientation) {
+            initialForward = new THREE.Vector3();
+            controls.camera.getWorldDirection(initialForward);
+            initialUp = controls.camera.up.clone();
+          }
+          
+          // Create the bezier curve
+          curve = new THREE.CubicBezierCurve3(p0, p1, p2, p3);
+        },
+        onUpdate: () => {
+          const t = progressProxy.value; // Eased progress value (0 to 1)
+          
+          // Get point on curve at parameter t
+          const pointOnCurve = curve.getPoint(t);
+          
+          if (maintainOrientation && initialForward && initialUp) {
+            // Maintain camera orientation (forward and up vectors)
+            const targetPos = pointOnCurve.clone().add(initialForward);
+            controls.setLookAt(
+              pointOnCurve.x, pointOnCurve.y, pointOnCurve.z,
+              targetPos.x, targetPos.y, targetPos.z,
+              false
+            );
+            // Restore up vector
+            controls.camera.up.copy(initialUp);
+            controls.camera.updateProjectionMatrix();
+          } else if (lookAtTarget) {
+            // Look at specified target
+            controls.setLookAt(
+              pointOnCurve.x, pointOnCurve.y, pointOnCurve.z,
+              lookAtTarget.x, lookAtTarget.y, lookAtTarget.z,
+              false
+            );
+          } else {
+            // Calculate tangent direction for natural camera orientation
+            const tangent = curve.getTangent(t);
+            const targetPos = pointOnCurve.clone().add(tangent.multiplyScalar(5));
+            controls.setLookAt(
+              pointOnCurve.x, pointOnCurve.y, pointOnCurve.z,
+              targetPos.x, targetPos.y, targetPos.z,
+              false
+            );
+          }
+        }
+      });
       return tl;
     }
   };

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import * as THREE from 'three';
 import { useMotionStore, type ExportedFile } from './useMotionStore';
 
 // Helper functions for degree/radian conversion
@@ -82,7 +83,9 @@ export const MotionEditor = ({ isPlaying, setIsPlaying }: MotionEditorProps) => 
     deleteExportedFile,
     getExportedFiles,
     downloadExportedFile,
-    importFileToStorage
+    importFileToStorage,
+    showBezierDebug,
+    toggleBezierDebug
   } = useMotionStore();
 
   const [showExportDialog, setShowExportDialog] = useState(false);
@@ -112,7 +115,7 @@ export const MotionEditor = ({ isPlaying, setIsPlaying }: MotionEditorProps) => 
 
   const activeBlock = blocks.find(b => b.id === activeBlockId);
 
-  const blockTypes = ['moveTo', 'composite', 'dolly', 'pan', 'truck', 'tilt', 'pedestal', 'roll', 'zoom', 'dollyZoom', 'arc'];
+  const blockTypes = ['moveTo', 'composite', 'dolly', 'pan', 'truck', 'tilt', 'pedestal', 'roll', 'zoom', 'dollyZoom', 'arc', 'bezierCurve'];
 
   const easeOptions = [
     'none',
@@ -1400,6 +1403,658 @@ export const MotionEditor = ({ isPlaying, setIsPlaying }: MotionEditorProps) => 
                 />
               </div>
             </div>
+          )}
+
+          {/* Special UI for Bezier Curve Block */}
+          {activeBlock.id.startsWith('bezierCurve') && (
+            <>
+              {/* Duration */}
+              <div style={{ marginBottom: 15 }}>
+                <label style={{ display: 'block', marginBottom: 5, fontSize: '12px', color: '#aaa' }}>
+                  Duration (seconds)
+                </label>
+                <NumberInput
+                  step="0.1"
+                  min="0.1"
+                  precision={1}
+                  value={activeBlock.duration ?? 3} 
+                  onChange={(val) => updateBlock(activeBlock.id, { duration: val })}
+                  style={{ 
+                    width: '100%', 
+                    padding: '6px',
+                    background: '#1a1a1a',
+                    border: '1px solid #444',
+                    borderRadius: 4,
+                    color: '#fff',
+                    fontSize: '14px',
+                    boxSizing: 'border-box'
+                  }}
+                />
+              </div>
+
+              {/* Easing */}
+              <div style={{ marginBottom: 15 }}>
+                <label style={{ display: 'block', marginBottom: 5, fontSize: '12px', color: '#aaa' }}>
+                  Easing
+                </label>
+                <select 
+                  value={activeBlock.ease ?? 'power2.inOut'}
+                  onChange={e => updateBlock(activeBlock.id, { ease: e.target.value })}
+                  style={{ 
+                    width: '100%', 
+                    padding: '6px',
+                    background: '#222',
+                    border: '1px solid #444',
+                    borderRadius: 4,
+                    color: '#fff',
+                    fontSize: '14px'
+                  }}
+                >
+                  {easeOptions.map(ease => (
+                    <option key={ease} value={ease}>{ease}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Bezier Curve Control Points */}
+              <div style={{ background: '#222', padding: 15, borderRadius: 5, marginTop: 15 }}>
+                <p style={{ fontSize: '12px', color: '#aaa', marginTop: 0, marginBottom: 10 }}>
+                  Bezier Curve Control Points
+                </p>
+                
+                {/* P0 - Start Point */}
+                <div style={{ marginBottom: 15 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
+                    <label style={{ fontSize: '12px', color: '#aaa', fontWeight: 'bold' }}>
+                      P0 (Start Point)
+                    </label>
+                    <button
+                      onClick={() => {
+                        const controls = useMotionStore.getState().controlsRef;
+                        if (controls) {
+                          const pos = new THREE.Vector3();
+                          controls.getPosition(pos);
+                          const currentBezier = activeBlock.bezierCurve ?? {};
+                          updateBlock(activeBlock.id, {
+                            bezierCurve: {
+                              ...currentBezier,
+                              p0: [pos.x, pos.y, pos.z]
+                            }
+                          });
+                        }
+                      }}
+                      style={{
+                        background: '#27ae60',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: 4,
+                        padding: '4px 8px',
+                        cursor: 'pointer',
+                        fontSize: '11px'
+                      }}
+                    >
+                      Set
+                    </button>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+                    <NumberInput
+                      step="0.1"
+                      value={activeBlock.bezierCurve?.p0?.[0] ?? 0}
+                      onChange={(val) => {
+                        const currentBezier = activeBlock.bezierCurve ?? {};
+                        const currentP0 = currentBezier.p0 ?? [0, 0, 0];
+                        updateBlock(activeBlock.id, {
+                          bezierCurve: {
+                            ...currentBezier,
+                            p0: [val, currentP0[1], currentP0[2]]
+                          }
+                        });
+                      }}
+                      placeholder="X"
+                      style={{ 
+                        width: '100%', 
+                        padding: '6px',
+                        background: '#1a1a1a',
+                        border: '1px solid #444',
+                        borderRadius: 4,
+                        color: '#fff',
+                        fontSize: '14px',
+                        boxSizing: 'border-box'
+                      }}
+                    />
+                    <NumberInput
+                      step="0.1"
+                      value={activeBlock.bezierCurve?.p0?.[1] ?? 0}
+                      onChange={(val) => {
+                        const currentBezier = activeBlock.bezierCurve ?? {};
+                        const currentP0 = currentBezier.p0 ?? [0, 0, 0];
+                        updateBlock(activeBlock.id, {
+                          bezierCurve: {
+                            ...currentBezier,
+                            p0: [currentP0[0], val, currentP0[2]]
+                          }
+                        });
+                      }}
+                      placeholder="Y"
+                      style={{ 
+                        width: '100%', 
+                        padding: '6px',
+                        background: '#1a1a1a',
+                        border: '1px solid #444',
+                        borderRadius: 4,
+                        color: '#fff',
+                        fontSize: '14px',
+                        boxSizing: 'border-box'
+                      }}
+                    />
+                    <NumberInput
+                      step="0.1"
+                      value={activeBlock.bezierCurve?.p0?.[2] ?? 0}
+                      onChange={(val) => {
+                        const currentBezier = activeBlock.bezierCurve ?? {};
+                        const currentP0 = currentBezier.p0 ?? [0, 0, 0];
+                        updateBlock(activeBlock.id, {
+                          bezierCurve: {
+                            ...currentBezier,
+                            p0: [currentP0[0], currentP0[1], val]
+                          }
+                        });
+                      }}
+                      placeholder="Z"
+                      style={{ 
+                        width: '100%', 
+                        padding: '6px',
+                        background: '#1a1a1a',
+                        border: '1px solid #444',
+                        borderRadius: 4,
+                        color: '#fff',
+                        fontSize: '14px',
+                        boxSizing: 'border-box'
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* P1 - Control Point 1 */}
+                <div style={{ marginBottom: 15 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
+                    <label style={{ fontSize: '12px', color: '#aaa', fontWeight: 'bold' }}>
+                      P1 (Control Point 1)
+                    </label>
+                    <button
+                      onClick={() => {
+                        const controls = useMotionStore.getState().controlsRef;
+                        if (controls) {
+                          const pos = new THREE.Vector3();
+                          controls.getPosition(pos);
+                          const currentBezier = activeBlock.bezierCurve ?? {};
+                          updateBlock(activeBlock.id, {
+                            bezierCurve: {
+                              ...currentBezier,
+                              p1: [pos.x, pos.y, pos.z]
+                            }
+                          });
+                        }
+                      }}
+                      style={{
+                        background: '#27ae60',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: 4,
+                        padding: '4px 8px',
+                        cursor: 'pointer',
+                        fontSize: '11px'
+                      }}
+                    >
+                      Set
+                    </button>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+                    <NumberInput
+                      step="0.1"
+                      value={activeBlock.bezierCurve?.p1?.[0] ?? 0}
+                      onChange={(val) => {
+                        const currentBezier = activeBlock.bezierCurve ?? {};
+                        const currentP1 = currentBezier.p1 ?? [0, 0, 0];
+                        updateBlock(activeBlock.id, {
+                          bezierCurve: {
+                            ...currentBezier,
+                            p1: [val, currentP1[1], currentP1[2]]
+                          }
+                        });
+                      }}
+                      placeholder="X"
+                      style={{ 
+                        width: '100%', 
+                        padding: '6px',
+                        background: '#1a1a1a',
+                        border: '1px solid #444',
+                        borderRadius: 4,
+                        color: '#fff',
+                        fontSize: '14px',
+                        boxSizing: 'border-box'
+                      }}
+                    />
+                    <NumberInput
+                      step="0.1"
+                      value={activeBlock.bezierCurve?.p1?.[1] ?? 0}
+                      onChange={(val) => {
+                        const currentBezier = activeBlock.bezierCurve ?? {};
+                        const currentP1 = currentBezier.p1 ?? [0, 0, 0];
+                        updateBlock(activeBlock.id, {
+                          bezierCurve: {
+                            ...currentBezier,
+                            p1: [currentP1[0], val, currentP1[2]]
+                          }
+                        });
+                      }}
+                      placeholder="Y"
+                      style={{ 
+                        width: '100%', 
+                        padding: '6px',
+                        background: '#1a1a1a',
+                        border: '1px solid #444',
+                        borderRadius: 4,
+                        color: '#fff',
+                        fontSize: '14px',
+                        boxSizing: 'border-box'
+                      }}
+                    />
+                    <NumberInput
+                      step="0.1"
+                      value={activeBlock.bezierCurve?.p1?.[2] ?? 0}
+                      onChange={(val) => {
+                        const currentBezier = activeBlock.bezierCurve ?? {};
+                        const currentP1 = currentBezier.p1 ?? [0, 0, 0];
+                        updateBlock(activeBlock.id, {
+                          bezierCurve: {
+                            ...currentBezier,
+                            p1: [currentP1[0], currentP1[1], val]
+                          }
+                        });
+                      }}
+                      placeholder="Z"
+                      style={{ 
+                        width: '100%', 
+                        padding: '6px',
+                        background: '#1a1a1a',
+                        border: '1px solid #444',
+                        borderRadius: 4,
+                        color: '#fff',
+                        fontSize: '14px',
+                        boxSizing: 'border-box'
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* P2 - Control Point 2 */}
+                <div style={{ marginBottom: 15 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
+                    <label style={{ fontSize: '12px', color: '#aaa', fontWeight: 'bold' }}>
+                      P2 (Control Point 2)
+                    </label>
+                    <button
+                      onClick={() => {
+                        const controls = useMotionStore.getState().controlsRef;
+                        if (controls) {
+                          const pos = new THREE.Vector3();
+                          controls.getPosition(pos);
+                          const currentBezier = activeBlock.bezierCurve ?? {};
+                          updateBlock(activeBlock.id, {
+                            bezierCurve: {
+                              ...currentBezier,
+                              p2: [pos.x, pos.y, pos.z]
+                            }
+                          });
+                        }
+                      }}
+                      style={{
+                        background: '#27ae60',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: 4,
+                        padding: '4px 8px',
+                        cursor: 'pointer',
+                        fontSize: '11px'
+                      }}
+                    >
+                      Set
+                    </button>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+                    <NumberInput
+                      step="0.1"
+                      value={activeBlock.bezierCurve?.p2?.[0] ?? 0}
+                      onChange={(val) => {
+                        const currentBezier = activeBlock.bezierCurve ?? {};
+                        const currentP2 = currentBezier.p2 ?? [0, 0, 0];
+                        updateBlock(activeBlock.id, {
+                          bezierCurve: {
+                            ...currentBezier,
+                            p2: [val, currentP2[1], currentP2[2]]
+                          }
+                        });
+                      }}
+                      placeholder="X"
+                      style={{ 
+                        width: '100%', 
+                        padding: '6px',
+                        background: '#1a1a1a',
+                        border: '1px solid #444',
+                        borderRadius: 4,
+                        color: '#fff',
+                        fontSize: '14px',
+                        boxSizing: 'border-box'
+                      }}
+                    />
+                    <NumberInput
+                      step="0.1"
+                      value={activeBlock.bezierCurve?.p2?.[1] ?? 0}
+                      onChange={(val) => {
+                        const currentBezier = activeBlock.bezierCurve ?? {};
+                        const currentP2 = currentBezier.p2 ?? [0, 0, 0];
+                        updateBlock(activeBlock.id, {
+                          bezierCurve: {
+                            ...currentBezier,
+                            p2: [currentP2[0], val, currentP2[2]]
+                          }
+                        });
+                      }}
+                      placeholder="Y"
+                      style={{ 
+                        width: '100%', 
+                        padding: '6px',
+                        background: '#1a1a1a',
+                        border: '1px solid #444',
+                        borderRadius: 4,
+                        color: '#fff',
+                        fontSize: '14px',
+                        boxSizing: 'border-box'
+                      }}
+                    />
+                    <NumberInput
+                      step="0.1"
+                      value={activeBlock.bezierCurve?.p2?.[2] ?? 0}
+                      onChange={(val) => {
+                        const currentBezier = activeBlock.bezierCurve ?? {};
+                        const currentP2 = currentBezier.p2 ?? [0, 0, 0];
+                        updateBlock(activeBlock.id, {
+                          bezierCurve: {
+                            ...currentBezier,
+                            p2: [currentP2[0], currentP2[1], val]
+                          }
+                        });
+                      }}
+                      placeholder="Z"
+                      style={{ 
+                        width: '100%', 
+                        padding: '6px',
+                        background: '#1a1a1a',
+                        border: '1px solid #444',
+                        borderRadius: 4,
+                        color: '#fff',
+                        fontSize: '14px',
+                        boxSizing: 'border-box'
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* P3 - End Point */}
+                <div style={{ marginBottom: 15 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
+                    <label style={{ fontSize: '12px', color: '#aaa', fontWeight: 'bold' }}>
+                      P3 (End Point)
+                    </label>
+                    <button
+                      onClick={() => {
+                        const controls = useMotionStore.getState().controlsRef;
+                        if (controls) {
+                          const pos = new THREE.Vector3();
+                          controls.getPosition(pos);
+                          const currentBezier = activeBlock.bezierCurve ?? {};
+                          updateBlock(activeBlock.id, {
+                            bezierCurve: {
+                              ...currentBezier,
+                              p3: [pos.x, pos.y, pos.z]
+                            }
+                          });
+                        }
+                      }}
+                      style={{
+                        background: '#27ae60',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: 4,
+                        padding: '4px 8px',
+                        cursor: 'pointer',
+                        fontSize: '11px'
+                      }}
+                    >
+                      Set
+                    </button>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+                    <NumberInput
+                      step="0.1"
+                      value={activeBlock.bezierCurve?.p3?.[0] ?? 0}
+                      onChange={(val) => {
+                        const currentBezier = activeBlock.bezierCurve ?? {};
+                        const currentP3 = currentBezier.p3 ?? [0, 0, 0];
+                        updateBlock(activeBlock.id, {
+                          bezierCurve: {
+                            ...currentBezier,
+                            p3: [val, currentP3[1], currentP3[2]]
+                          }
+                        });
+                      }}
+                      placeholder="X"
+                      style={{ 
+                        width: '100%', 
+                        padding: '6px',
+                        background: '#1a1a1a',
+                        border: '1px solid #444',
+                        borderRadius: 4,
+                        color: '#fff',
+                        fontSize: '14px',
+                        boxSizing: 'border-box'
+                      }}
+                    />
+                    <NumberInput
+                      step="0.1"
+                      value={activeBlock.bezierCurve?.p3?.[1] ?? 0}
+                      onChange={(val) => {
+                        const currentBezier = activeBlock.bezierCurve ?? {};
+                        const currentP3 = currentBezier.p3 ?? [0, 0, 0];
+                        updateBlock(activeBlock.id, {
+                          bezierCurve: {
+                            ...currentBezier,
+                            p3: [currentP3[0], val, currentP3[2]]
+                          }
+                        });
+                      }}
+                      placeholder="Y"
+                      style={{ 
+                        width: '100%', 
+                        padding: '6px',
+                        background: '#1a1a1a',
+                        border: '1px solid #444',
+                        borderRadius: 4,
+                        color: '#fff',
+                        fontSize: '14px',
+                        boxSizing: 'border-box'
+                      }}
+                    />
+                    <NumberInput
+                      step="0.1"
+                      value={activeBlock.bezierCurve?.p3?.[2] ?? 0}
+                      onChange={(val) => {
+                        const currentBezier = activeBlock.bezierCurve ?? {};
+                        const currentP3 = currentBezier.p3 ?? [0, 0, 0];
+                        updateBlock(activeBlock.id, {
+                          bezierCurve: {
+                            ...currentBezier,
+                            p3: [currentP3[0], currentP3[1], val]
+                          }
+                        });
+                      }}
+                      placeholder="Z"
+                      style={{ 
+                        width: '100%', 
+                        padding: '6px',
+                        background: '#1a1a1a',
+                        border: '1px solid #444',
+                        borderRadius: 4,
+                        color: '#fff',
+                        fontSize: '14px',
+                        boxSizing: 'border-box'
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* Look At Target (Optional) */}
+                <div style={{ marginBottom: 15 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
+                    <label style={{ fontSize: '12px', color: '#aaa', fontWeight: 'bold' }}>
+                      Look At Target (Optional)
+                    </label>
+                    <button
+                      onClick={() => {
+                        const controls = useMotionStore.getState().controlsRef;
+                        if (controls) {
+                          const pos = new THREE.Vector3();
+                          controls.getPosition(pos);
+                          const currentBezier = activeBlock.bezierCurve ?? {};
+                          updateBlock(activeBlock.id, {
+                            bezierCurve: {
+                              ...currentBezier,
+                              lookAtTarget: [pos.x, pos.y, pos.z]
+                            }
+                          });
+                        }
+                      }}
+                      style={{
+                        background: '#27ae60',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: 4,
+                        padding: '4px 8px',
+                        cursor: 'pointer',
+                        fontSize: '11px'
+                      }}
+                    >
+                      Set
+                    </button>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+                    <NumberInput
+                      step="0.1"
+                      value={activeBlock.bezierCurve?.lookAtTarget?.[0] ?? 0}
+                      onChange={(val) => {
+                        const currentBezier = activeBlock.bezierCurve ?? {};
+                        const currentTarget = currentBezier.lookAtTarget ?? [0, 0, 0];
+                        updateBlock(activeBlock.id, {
+                          bezierCurve: {
+                            ...currentBezier,
+                            lookAtTarget: [val, currentTarget[1], currentTarget[2]]
+                          }
+                        });
+                      }}
+                      placeholder="X"
+                      style={{ 
+                        width: '100%', 
+                        padding: '6px',
+                        background: '#1a1a1a',
+                        border: '1px solid #444',
+                        borderRadius: 4,
+                        color: '#fff',
+                        fontSize: '14px',
+                        boxSizing: 'border-box'
+                      }}
+                    />
+                    <NumberInput
+                      step="0.1"
+                      value={activeBlock.bezierCurve?.lookAtTarget?.[1] ?? 0}
+                      onChange={(val) => {
+                        const currentBezier = activeBlock.bezierCurve ?? {};
+                        const currentTarget = currentBezier.lookAtTarget ?? [0, 0, 0];
+                        updateBlock(activeBlock.id, {
+                          bezierCurve: {
+                            ...currentBezier,
+                            lookAtTarget: [currentTarget[0], val, currentTarget[2]]
+                          }
+                        });
+                      }}
+                      placeholder="Y"
+                      style={{ 
+                        width: '100%', 
+                        padding: '6px',
+                        background: '#1a1a1a',
+                        border: '1px solid #444',
+                        borderRadius: 4,
+                        color: '#fff',
+                        fontSize: '14px',
+                        boxSizing: 'border-box'
+                      }}
+                    />
+                    <NumberInput
+                      step="0.1"
+                      value={activeBlock.bezierCurve?.lookAtTarget?.[2] ?? 0}
+                      onChange={(val) => {
+                        const currentBezier = activeBlock.bezierCurve ?? {};
+                        const currentTarget = currentBezier.lookAtTarget ?? [0, 0, 0];
+                        updateBlock(activeBlock.id, {
+                          bezierCurve: {
+                            ...currentBezier,
+                            lookAtTarget: [currentTarget[0], currentTarget[1], val]
+                          }
+                        });
+                      }}
+                      placeholder="Z"
+                      style={{ 
+                        width: '100%', 
+                        padding: '6px',
+                        background: '#1a1a1a',
+                        border: '1px solid #444',
+                        borderRadius: 4,
+                        color: '#fff',
+                        fontSize: '14px',
+                        boxSizing: 'border-box'
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* Maintain Orientation and Debug Toggle */}
+                <div style={{ marginBottom: 10 }}>
+                  <label style={{ display: 'flex', alignItems: 'center', fontSize: '12px', color: '#aaa', cursor: 'pointer', marginBottom: 8 }}>
+                    <input
+                      type="checkbox"
+                      checked={activeBlock.bezierCurve?.maintainOrientation ?? false}
+                      onChange={(e) => updateBlock(activeBlock.id, {
+                        bezierCurve: {
+                          ...activeBlock.bezierCurve,
+                          maintainOrientation: e.target.checked
+                        }
+                      })}
+                      style={{ marginRight: 8 }}
+                    />
+                    Maintain Camera Orientation
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', fontSize: '12px', color: '#aaa', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={showBezierDebug}
+                      onChange={toggleBezierDebug}
+                      style={{ marginRight: 8 }}
+                    />
+                    Show Bezier Curve Debug
+                  </label>
+                </div>
+              </div>
+            </>
           )}
 
 

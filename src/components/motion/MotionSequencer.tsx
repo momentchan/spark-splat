@@ -14,6 +14,7 @@ import {
   createArcBlock,
   createCompositeBlock,
   createMoveToBlock,
+  createBezierCurveBlock,
   MotionBlock,
   MotionBlockOptions
 } from "./motionBlocks";
@@ -54,6 +55,7 @@ export const MotionSequencer = ({
     arc: createArcBlock,
     composite: createCompositeBlock,
     moveTo: createMoveToBlock,
+    bezierCurve: createBezierCurveBlock,
   };
 
   useEffect(() => {

@@ -6,6 +6,7 @@ import type { SplatMesh as SparkSplatMesh } from "@sparkjsdev/spark";
 import { MotionSequencer } from "../components/motion/MotionSequencer";
 import { useMotionStore } from "../components/motion/useMotionStore";
 import type { CameraControls } from "@react-three/drei";
+import { BezierCurveDebug } from "../components/motion/BezierCurveDebug";
 
 interface SceneProps {
   isPlaying: boolean;
@@ -89,6 +90,8 @@ export const Scene = ({ isPlaying, setIsPlaying }: SceneProps) => {
           setIsPlaying(false);
         }}
       />
+      {/* Debug visualization for Bezier Curves */}
+      <BezierCurveDebug />
       <SparkRenderer args={[sparkRendererArgs]}>
         {/* This particular splat mesh is upside down */}
         <group rotation={[Math.PI, Math.PI * 0.5, 0]}>
