@@ -18,16 +18,15 @@ export const BezierCurveDebug = () => {
         const bezierConfig = block.bezierCurve;
         if (!bezierConfig) return null;
         
-        // Get control points (can be null if not set)
-        const p0 = bezierConfig.p0 ? new THREE.Vector3(...bezierConfig.p0) : null;
-        const p1 = bezierConfig.p1 ? new THREE.Vector3(...bezierConfig.p1) : null;
-        const p2 = bezierConfig.p2 ? new THREE.Vector3(...bezierConfig.p2) : null;
-        const p3 = bezierConfig.p3 ? new THREE.Vector3(...bezierConfig.p3) : null;
+        // Get control points from array
+        const controlPoints = bezierConfig.controlPoints 
+          ? bezierConfig.controlPoints.map(p => new THREE.Vector3(...p))
+          : [];
         
-        // Generate curve points only if all 4 points are set
+        // Generate curve points only if we have at least 2 points
         let curvePoints: THREE.Vector3[] | null = null;
-        if (p0 && p1 && p2 && p3) {
-          const curve = new THREE.CubicBezierCurve3(p0, p1, p2, p3);
+        if (controlPoints.length >= 2) {
+          const curve = new THREE.CatmullRomCurve3(controlPoints, false, 'centripetal');
           curvePoints = [];
           const divisions = 100;
           for (let i = 0; i <= divisions; i++) {
@@ -38,10 +37,7 @@ export const BezierCurveDebug = () => {
         
         return {
           blockId: block.id,
-          p0,
-          p1,
-          p2,
-          p3,
+          controlPoints,
           curvePoints,
           lookAtTarget: bezierConfig.lookAtTarget ? new THREE.Vector3(...bezierConfig.lookAtTarget) : null,
           isActive: block.id === activeBlockId
@@ -57,103 +53,58 @@ export const BezierCurveDebug = () => {
     <>
       {bezierVisualizations.map((viz) => (
         <group key={viz.blockId}>
-          {/* Control Points - Show each point if it's set */}
-          {viz.p0 && (
-            <>
-              <Sphere position={viz.p0} args={[0.1, 16, 16]}>
-                <meshStandardMaterial color={viz.isActive ? "#00ff00" : "#ff0000"} />
-              </Sphere>
-              <Text
-                position={[viz.p0.x, viz.p0.y + 0.15, viz.p0.z]}
-                fontSize={0.15}
-                color={viz.isActive ? "#00ff00" : "#ff0000"}
-                anchorX="center"
-                anchorY="middle"
-              >
-                0
-              </Text>
-            </>
-          )}
+          {/* Control Points - Show each point */}
+          {viz.controlPoints.map((point, index) => {
+            const isStart = index === 0;
+            const isEnd = index === viz.controlPoints.length - 1;
+            const isMiddle = !isStart && !isEnd;
+            
+            // Color coding: start = green/red, middle = cyan/orange, end = blue/magenta
+            const color = isStart 
+              ? (viz.isActive ? "#00ff00" : "#ff0000")
+              : isEnd
+              ? (viz.isActive ? "#0000ff" : "#ff00ff")
+              : (viz.isActive ? "#00ffff" : "#ff8800");
+            
+            const size = (isStart || isEnd) ? 0.1 : 0.08;
+            
+            return (
+              <group key={index}>
+                <Sphere position={point} args={[size, 16, 16]}>
+                  <meshStandardMaterial color={color} />
+                </Sphere>
+                <Text
+                  position={[point.x, point.y + 0.15, point.z]}
+                  fontSize={0.15}
+                  color={color}
+                  anchorX="center"
+                  anchorY="middle"
+                >
+                  {index}
+                </Text>
+              </group>
+            );
+          })}
           
-          {viz.p1 && (
-            <>
-              <Sphere position={viz.p1} args={[0.08, 16, 16]}>
-                <meshStandardMaterial color={viz.isActive ? "#00ffff" : "#ff8800"} />
-              </Sphere>
-              <Text
-                position={[viz.p1.x, viz.p1.y + 0.15, viz.p1.z]}
-                fontSize={0.15}
-                color={viz.isActive ? "#00ffff" : "#ff8800"}
-                anchorX="center"
-                anchorY="middle"
-              >
-                1
-              </Text>
-            </>
-          )}
+          {/* Control Lines - Show lines between consecutive points */}
+          {viz.controlPoints.map((point, index) => {
+            if (index < viz.controlPoints.length - 1) {
+              const nextPoint = viz.controlPoints[index + 1];
+              return (
+                <Line
+                  key={`line-${index}`}
+                  points={[point, nextPoint]}
+                  color={viz.isActive ? "#888888" : "#666666"}
+                  lineWidth={viz.isActive ? 2 : 1}
+                  dashed
+                />
+              );
+            }
+            return null;
+          })}
           
-          {viz.p2 && (
-            <>
-              <Sphere position={viz.p2} args={[0.08, 16, 16]}>
-                <meshStandardMaterial color={viz.isActive ? "#00ffff" : "#ff8800"} />
-              </Sphere>
-              <Text
-                position={[viz.p2.x, viz.p2.y + 0.15, viz.p2.z]}
-                fontSize={0.15}
-                color={viz.isActive ? "#00ffff" : "#ff8800"}
-                anchorX="center"
-                anchorY="middle"
-              >
-                2
-              </Text>
-            </>
-          )}
-          
-          {viz.p3 && (
-            <>
-              <Sphere position={viz.p3} args={[0.1, 16, 16]}>
-                <meshStandardMaterial color={viz.isActive ? "#0000ff" : "#ff00ff"} />
-              </Sphere>
-              <Text
-                position={[viz.p3.x, viz.p3.y + 0.15, viz.p3.z]}
-                fontSize={0.15}
-                color={viz.isActive ? "#0000ff" : "#ff00ff"}
-                anchorX="center"
-                anchorY="middle"
-              >
-                3
-              </Text>
-            </>
-          )}
-          
-          {/* Control Lines - Only show lines between consecutive points that are both set */}
-          {viz.p0 && viz.p1 && (
-            <Line
-              points={[viz.p0, viz.p1]}
-              color={viz.isActive ? "#888888" : "#666666"}
-              lineWidth={viz.isActive ? 2 : 1}
-              dashed
-            />
-          )}
-          {viz.p1 && viz.p2 && (
-            <Line
-              points={[viz.p1, viz.p2]}
-              color={viz.isActive ? "#888888" : "#666666"}
-              lineWidth={viz.isActive ? 2 : 1}
-              dashed
-            />
-          )}
-          {viz.p2 && viz.p3 && (
-            <Line
-              points={[viz.p2, viz.p3]}
-              color={viz.isActive ? "#888888" : "#666666"}
-              lineWidth={viz.isActive ? 2 : 1}
-              dashed
-            />
-          )}
-          
-          {/* Bezier Curve Path - Only show if all 4 points are set */}
-          {viz.curvePoints && (
+          {/* Curve Path - Show if we have at least 2 points */}
+          {viz.curvePoints && viz.curvePoints.length > 0 && (
             <Line
               points={viz.curvePoints}
               color={viz.isActive ? "#ffff00" : "#ffffff"}
@@ -161,15 +112,15 @@ export const BezierCurveDebug = () => {
             />
           )}
           
-          {/* Look At Target (if set) */}
-          {viz.lookAtTarget && viz.p3 && (
+          {/* Look At Target (if set and we have control points) */}
+          {viz.lookAtTarget && viz.controlPoints.length > 0 && (
             <>
               <Sphere position={viz.lookAtTarget} args={[0.12, 16, 16]}>
                 <meshStandardMaterial color="#ffff00" />
               </Sphere>
               {/* Line from last point to target */}
               <Line
-                points={[viz.p3, viz.lookAtTarget]}
+                points={[viz.controlPoints[viz.controlPoints.length - 1], viz.lookAtTarget]}
                 color="#ffff00"
                 lineWidth={1}
                 dashed

@@ -68,10 +68,7 @@ export interface MotionBlockOptions {
   
   // Bezier curve parameters
   bezierCurve?: {
-    p0?: [number, number, number]; // Start point (defaults to current camera position)
-    p1?: [number, number, number]; // Control point 1
-    p2?: [number, number, number]; // Control point 2
-    p3?: [number, number, number]; // End point
+    controlPoints?: [number, number, number][]; // Array of control points (minimum 2 points required)
     lookAtTarget?: [number, number, number]; // Optional: camera looks at this point while following curve
     maintainOrientation?: boolean; // If true, camera maintains its orientation; if false, looks at lookAtTarget
   };
@@ -753,46 +750,36 @@ export const createBezierCurveBlock = (opts: MotionBlockOptions = {}): MotionBlo
       // Proxy object to hold eased progress value
       const progressProxy = { value: 0 };
       
-      // Get control points
-      let p0: THREE.Vector3;
-      let p1: THREE.Vector3;
-      let p2: THREE.Vector3;
-      let p3: THREE.Vector3;
+      let controlPoints: THREE.Vector3[] = [];
       let lookAtTarget: THREE.Vector3 | null = null;
       let maintainOrientation = bezierConfig.maintainOrientation ?? false;
       let initialForward: THREE.Vector3 | null = null;
       let initialUp: THREE.Vector3 | null = null;
-      let curve: THREE.CubicBezierCurve3;
+      let curve: THREE.CatmullRomCurve3;
       
       tl.to(progressProxy, {
         value: 1,
         duration,
         ease,
         onStart: () => {
-          // Get current camera position as default P0
+          // Get current camera position as default start point
           const currentPos = new THREE.Vector3();
           controls.getPosition(currentPos);
           
-          // Set control points
-          // P0 explicitly defines the start position, so we don't need startState
-          p0 = bezierConfig.p0 
-            ? new THREE.Vector3(...bezierConfig.p0)
-            : currentPos.clone();
-          
-          p1 = bezierConfig.p1 
-            ? new THREE.Vector3(...bezierConfig.p1)
-            : currentPos.clone().add(new THREE.Vector3(2, 0, 0)); // Default offset
-          
-          p2 = bezierConfig.p2 
-            ? new THREE.Vector3(...bezierConfig.p2)
-            : currentPos.clone().add(new THREE.Vector3(4, 2, 0)); // Default offset
-          
-          p3 = bezierConfig.p3 
-            ? new THREE.Vector3(...bezierConfig.p3)
-            : currentPos.clone().add(new THREE.Vector3(6, 0, 0)); // Default offset
+          // Get control points from config or use defaults
+          if (bezierConfig.controlPoints && bezierConfig.controlPoints.length >= 2) {
+            controlPoints = bezierConfig.controlPoints.map(p => new THREE.Vector3(...p));
+          } else {
+            // Default: use current position and a few offset points
+            controlPoints = [
+              currentPos.clone(),
+              currentPos.clone().add(new THREE.Vector3(2, 0, 0)),
+              currentPos.clone().add(new THREE.Vector3(4, 2, 0)),
+              currentPos.clone().add(new THREE.Vector3(6, 0, 0))
+            ];
+          }
           
           // Set look-at target (defaults to [0, 0, 0])
-          // Check if lookAtTarget is explicitly set (not just default)
           if (bezierConfig.lookAtTarget && 
               (bezierConfig.lookAtTarget[0] !== 0 || 
                bezierConfig.lookAtTarget[1] !== 0 || 
@@ -813,8 +800,8 @@ export const createBezierCurveBlock = (opts: MotionBlockOptions = {}): MotionBlo
             initialUp = controls.camera.up.clone();
           }
           
-          // Create the bezier curve
-          curve = new THREE.CubicBezierCurve3(p0, p1, p2, p3);
+          // Create the curve using CatmullRomCurve3 (supports any number of points)
+          curve = new THREE.CatmullRomCurve3(controlPoints, false, 'centripetal');
         },
         onUpdate: () => {
           const t = progressProxy.value; // Eased progress value (0 to 1)

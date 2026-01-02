@@ -95,10 +95,7 @@ const getDefaultOptions = (type: string): Partial<BlockConfig> => {
       ...base, 
       duration: 3,
       bezierCurve: {
-        p0: undefined, // Will use current camera position
-        p1: undefined,
-        p2: undefined,
-        p3: undefined,
+        controlPoints: [], // Empty array, will use current camera position as default
         lookAtTarget: [0, 0, 0], // Default to origin
         maintainOrientation: false
       },
